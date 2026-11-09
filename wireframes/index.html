@@ -1,0 +1,423 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Boardline — UI Wireframes</title>
+  <style>
+    :root {
+      --bg: #f3f4f6;
+      --surface: #ffffff;
+      --ink: #111827;
+      --muted: #6b7280;
+      --line: #d1d5db;
+      --accent: #0f766e;
+      --accent-ink: #ffffff;
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif;
+      color: var(--ink);
+      background: #e5e7eb;
+      min-height: 100vh;
+    }
+
+    .page {
+      max-width: 1100px;
+      margin: 0 auto;
+      padding: 24px 16px 48px;
+    }
+
+    .intro h1 {
+      margin: 0 0 8px;
+      font-size: 1.5rem;
+      letter-spacing: -0.02em;
+    }
+    .intro p {
+      margin: 0 0 16px;
+      color: var(--muted);
+      line-height: 1.45;
+      max-width: 60ch;
+    }
+
+    .tabs {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-bottom: 12px;
+    }
+    .tab {
+      border: 1px solid var(--line);
+      background: var(--surface);
+      color: var(--ink);
+      padding: 8px 14px;
+      border-radius: 4px;
+      cursor: pointer;
+      font: inherit;
+    }
+    .tab[aria-pressed="true"] {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 30%, transparent);
+      font-weight: 600;
+    }
+
+    .shell {
+      background: var(--bg);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      overflow: hidden;
+      min-height: 520px;
+      box-shadow: 0 8px 24px rgb(0 0 0 / 6%);
+    }
+
+    .top {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+      padding: 12px 16px;
+      background: var(--surface);
+      border-bottom: 1px solid var(--line);
+    }
+    .brand { font-weight: 700; letter-spacing: -0.02em; }
+    .nav {
+      display: flex;
+      gap: 14px;
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    .body { padding: 16px; }
+
+    .row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 12px;
+      flex-wrap: wrap;
+    }
+
+    .btn {
+      background: var(--accent);
+      color: var(--accent-ink);
+      border: 0;
+      padding: 8px 12px;
+      border-radius: 4px;
+      font: inherit;
+      cursor: pointer;
+    }
+    .btn-ghost {
+      background: var(--surface);
+      color: var(--ink);
+      border: 1px solid var(--line);
+      padding: 8px 12px;
+      border-radius: 4px;
+      font: inherit;
+      cursor: pointer;
+    }
+
+    .board {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 10px;
+    }
+    @media (max-width: 800px) {
+      .board { grid-template-columns: 1fr 1fr; }
+      .nav { display: none; }
+    }
+
+    .col {
+      background: #eceff3;
+      border: 1px solid var(--line);
+      border-radius: 4px;
+      padding: 8px;
+      min-height: 280px;
+    }
+    .col h3 {
+      margin: 0 0 8px;
+      font-size: 12px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      color: var(--muted);
+    }
+
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: 4px;
+      padding: 10px;
+      margin-bottom: 8px;
+    }
+    .card strong { display: block; font-size: 14px; margin-bottom: 4px; }
+    .meta { font-size: 12px; color: var(--muted); }
+
+    .auth {
+      max-width: 340px;
+      margin: 48px auto;
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 24px;
+    }
+    .auth label {
+      display: block;
+      font-size: 13px;
+      margin: 12px 0 4px;
+    }
+    .auth input {
+      width: 100%;
+      padding: 10px 12px;
+      border: 1px solid var(--line);
+      border-radius: 4px;
+      background: var(--bg);
+      color: var(--ink);
+      font: inherit;
+    }
+    .actions { display: flex; gap: 8px; margin-top: 16px; }
+
+    .list { display: flex; flex-direction: column; gap: 8px; }
+    .item {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 8px;
+      align-items: center;
+      padding: 14px;
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: 4px;
+    }
+
+    .stats {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 8px;
+      margin-bottom: 16px;
+    }
+    @media (max-width: 800px) {
+      .stats { grid-template-columns: 1fr 1fr; }
+    }
+    .stat {
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: 4px;
+      padding: 14px;
+    }
+    .stat span { display: block; font-size: 12px; color: var(--muted); }
+    .stat b { font-size: 24px; font-weight: 700; }
+
+    .chart {
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: 4px;
+      padding: 16px 16px 28px;
+      height: 200px;
+      display: flex;
+      align-items: flex-end;
+      gap: 16px;
+    }
+    .bar {
+      flex: 1;
+      background: color-mix(in srgb, var(--accent) 75%, #9ca3af);
+      border-radius: 2px 2px 0 0;
+      position: relative;
+    }
+    .bar i {
+      position: absolute;
+      bottom: -22px;
+      left: 0;
+      right: 0;
+      text-align: center;
+      font-style: normal;
+      font-size: 11px;
+      color: var(--muted);
+    }
+
+    .screen[hidden] { display: none; }
+
+    .hint {
+      margin-top: 14px;
+      color: var(--muted);
+      font-size: 14px;
+      line-height: 1.45;
+    }
+
+    .legend {
+      margin-top: 20px;
+      padding: 14px 16px;
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      font-size: 14px;
+      line-height: 1.5;
+    }
+    .legend strong { display: block; margin-bottom: 6px; }
+  </style>
+</head>
+<body>
+  <div class="page">
+    <div class="intro">
+      <h1>Boardline wireframes</h1>
+      <p>
+        This is the UI we will build for Task 04. Click the tabs.
+        “Trello / Kanban” = four status columns; drag a task card to change its status.
+      </p>
+    </div>
+
+    <div class="tabs" role="group" aria-label="Screens">
+      <button type="button" class="tab" data-screen="auth" aria-pressed="true">1. Auth</button>
+      <button type="button" class="tab" data-screen="projects" aria-pressed="false">2. Projects</button>
+      <button type="button" class="tab" data-screen="kanban" aria-pressed="false">3. Kanban board</button>
+      <button type="button" class="tab" data-screen="dashboard" aria-pressed="false">4. Dashboard</button>
+    </div>
+
+    <div class="shell">
+      <!-- AUTH -->
+      <div class="screen" data-panel="auth">
+        <div class="body">
+          <div class="auth">
+            <div class="brand">Boardline</div>
+            <p class="meta" style="margin: 6px 0 0">Email + password only. No Google login.</p>
+            <label>Email
+              <input type="email" value="you@college.edu" readonly />
+            </label>
+            <label>Password
+              <input type="password" value="password" readonly />
+            </label>
+            <div class="actions">
+              <button type="button" class="btn">Log in</button>
+              <button type="button" class="btn-ghost">Register</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- PROJECTS -->
+      <div class="screen" data-panel="projects" hidden>
+        <div class="top">
+          <div class="brand">Boardline</div>
+          <div class="nav"><span>Dashboard</span><span>Projects</span><span>Log out</span></div>
+        </div>
+        <div class="body">
+          <div class="row">
+            <strong>Your projects</strong>
+            <button type="button" class="btn">New project</button>
+          </div>
+          <div class="list">
+            <div class="item">
+              <div>
+                <strong>Website redesign</strong>
+                <div class="meta">Landing + dashboard · due 20 Apr</div>
+              </div>
+              <button type="button" class="btn-ghost">Open board</button>
+            </div>
+            <div class="item">
+              <div>
+                <strong>Club hackathon</strong>
+                <div class="meta">Logistics · due 2 May</div>
+              </div>
+              <button type="button" class="btn-ghost">Open board</button>
+            </div>
+            <div class="item">
+              <div>
+                <strong>API rewrite</strong>
+                <div class="meta">Auth module · due 12 May</div>
+              </div>
+              <button type="button" class="btn-ghost">Open board</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- KANBAN -->
+      <div class="screen" data-panel="kanban" hidden>
+        <div class="top">
+          <div class="brand">Boardline</div>
+          <div class="nav"><span>Dashboard</span><span>Projects</span><span>Log out</span></div>
+        </div>
+        <div class="body">
+          <div class="row">
+            <div>
+              <strong>Website redesign</strong>
+              <div class="meta">Drag a card to another column to change status</div>
+            </div>
+            <button type="button" class="btn">New task</button>
+          </div>
+          <div class="board">
+            <div class="col">
+              <h3>To Do</h3>
+              <div class="card"><strong>Write copy</strong><div class="meta">Medium · 18 Apr</div></div>
+              <div class="card"><strong>Set up fonts</strong><div class="meta">Low · 22 Apr</div></div>
+            </div>
+            <div class="col">
+              <h3>In Progress</h3>
+              <div class="card"><strong>Hero layout</strong><div class="meta">High · 15 Apr · Alex</div></div>
+            </div>
+            <div class="col">
+              <h3>Review</h3>
+              <div class="card"><strong>Nav polish</strong><div class="meta">Critical · 14 Apr · Sam</div></div>
+            </div>
+            <div class="col">
+              <h3>Completed</h3>
+              <div class="card"><strong>Repo setup</strong><div class="meta">Low · done</div></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- DASHBOARD -->
+      <div class="screen" data-panel="dashboard" hidden>
+        <div class="top">
+          <div class="brand">Boardline</div>
+          <div class="nav"><span>Dashboard</span><span>Projects</span><span>Log out</span></div>
+        </div>
+        <div class="body">
+          <div class="row"><strong>Overview</strong></div>
+          <div class="stats">
+            <div class="stat"><span>Total</span><b>24</b></div>
+            <div class="stat"><span>Completed</span><b>9</b></div>
+            <div class="stat"><span>Pending</span><b>12</b></div>
+            <div class="stat"><span>Overdue</span><b>3</b></div>
+          </div>
+          <div class="chart" aria-label="Tasks by status">
+            <div class="bar" style="height:55%"><i>To Do</i></div>
+            <div class="bar" style="height:35%"><i>Doing</i></div>
+            <div class="bar" style="height:25%"><i>Review</i></div>
+            <div class="bar" style="height:70%"><i>Done</i></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <p class="hint">
+      File location:
+      <code>mulearn-tech-recruitment/wireframes/index.html</code>
+    </p>
+
+    <div class="legend">
+      <strong>What “Kanban / Trello” means here</strong>
+      Tasks are cards. Columns are statuses: To Do → In Progress → Review → Completed.
+      Dragging a card to another column updates its status in the database.
+      Cool gray + teal accent only — no purple demo UI.
+    </div>
+  </div>
+
+  <script>
+    const tabs = document.querySelectorAll(".tab");
+    const panels = document.querySelectorAll("[data-panel]");
+
+    tabs.forEach((tab) => {
+      tab.addEventListener("click", () => {
+        const id = tab.getAttribute("data-screen");
+        tabs.forEach((t) => t.setAttribute("aria-pressed", String(t === tab)));
+        panels.forEach((p) => {
+          p.hidden = p.getAttribute("data-panel") !== id;
+        });
+      });
+    });
+  </script>
+</body>
+</html>

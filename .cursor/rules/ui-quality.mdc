@@ -1,0 +1,17 @@
+---
+description: Distinctive, accessible Boardline interface standards
+globs: "src/**/*.{tsx,css}"
+alwaysApply: false
+---
+
+# UI quality
+
+- Follow `docs/DESIGN_SYSTEM.md`; do not introduce a teal-led palette or decorative gradients.
+- Use Manrope for display and DM Sans for interface copy; preserve the compact workspace density.
+- Use Lucide icons, never emoji or text glyphs as interface icons.
+- Borders communicate structure; avoid nesting every region in another rounded card.
+- Keep controls at least 40px tall and provide visible `:focus-visible` states.
+- Keep status meaning readable without color alone.
+- At narrow widths, prefer a focused horizontal Kanban board over unusably narrow columns.
+- Respect `prefers-reduced-motion`; interaction motion must explain a state change.
+- Use sentence case and specific actions: “Save task”, not “Submit”.
