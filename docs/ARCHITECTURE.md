@@ -23,6 +23,12 @@ signaling process memory and are deleted after both sockets leave.
 The server-designated existing peer always offers, avoiding offer collision. Candidates received
 before `setRemoteDescription` are queued and applied afterward.
 
+Each room membership receives a random resume token stored in that tab's session storage. The
+token survives a reload without leaking into a second same-browser tab. If a mobile browser
+reloads or resumes before its old WebSocket has timed out, presenting the token atomically replaces
+the stale socket instead of producing a false `room_full` error. A browser without the token still
+cannot enter a two-person room. Heartbeats remove abandoned sockets within about 30 seconds.
+
 ## Code boundaries
 
 - `shared/protocol.ts` defines and validates the signaling protocol used by both runtimes.
@@ -36,10 +42,11 @@ before `setRemoteDescription` are queued and applied afterward.
 
 ## Data channels
 
-`chat` is a reliable ordered channel carrying JSON envelopes for text, delivery acknowledgements,
-seen receipts, and typing state. One tick means the local browser wrote the message to the open
-data channel, two ticks mean the peer acknowledged it, and blue ticks mean the peer displayed the
-conversation in a visible, focused page.
+`chat` is a reliable ordered channel carrying JSON envelopes for text, peer display names,
+delivery acknowledgements, seen receipts, and typing state. Display names therefore remain peer
+content and are not stored by signaling. One tick means the local browser wrote the message to the
+open data channel, two ticks mean the peer acknowledged it, and blue ticks mean the peer displayed
+the conversation in a visible, focused page.
 
 `files` is a separate reliable ordered channel so binary buffering does not share the chat
 protocol. Files are capped at 25 MB, split into 16 KiB binary chunks, and paused when the channel
@@ -72,6 +79,7 @@ server and it does not receive plaintext chat messages.
 
 - WebSocket messages are validated and limited to 64 KiB.
 - Rooms contain at most two peers and use cryptographically random codes.
+- Resume tokens are random, room-scoped capabilities and are never sent to the other peer.
 - Production WebSocket upgrades require a matching configured or same-host origin.
 - React renders peer text as text, not HTML.
 - WebRTC encrypts data channels with DTLS. This protects transport, but without out-of-band

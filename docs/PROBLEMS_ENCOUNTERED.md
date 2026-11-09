@@ -125,3 +125,28 @@ stale build state and emitted `server/index.js` without the shared protocol outp
 Incremental compilation was removed from `tsconfig.server.json`. The production build now emits the
 complete `server-dist/server/` and `server-dist/shared/` trees every time. The compiled server was
 then started locally as a production smoke test before redeployment.
+
+## A reloading mobile browser temporarily made the room look full
+
+### Symptom
+
+After a phone browser was suspended or reloaded, immediately joining the same invitation could
+return `That room already has two people`, even though the user was replacing their own session.
+If the replacement was admitted later, WebRTC still had to negotiate a fresh route and could
+separately report an ICE failure.
+
+### Root cause
+
+Mobile browsers do not always close WebSockets before suspending a page. Until the server heartbeat
+expired that socket, the in-memory room correctly—but unhelpfully—counted it as the second peer.
+The room-full response happened at signaling time and was not caused by STUN, TURN, or WebRTC.
+
+### Resolution
+
+The server now issues a random room-scoped resume token to each browser tab. Session storage keeps
+the token across reloads without sharing it with a second tab. A returning browser can atomically
+replace its own stale socket without opening the room to a third person. Heartbeats were shortened
+so genuinely abandoned sockets are removed within about 30 seconds. The surviving peer resets its
+old `RTCPeerConnection` and creates a fresh offer when the browser returns.
+
+The interface also explains a genuine room-full response separately from an ICE route failure.

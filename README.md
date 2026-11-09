@@ -13,6 +13,8 @@ over WebRTC data channels.
 - Single-tick sent, double-tick delivered, and blue-tick seen receipts sent peer to peer
 - Two-minute peer-to-peer voice messages with live and playback waveforms
 - Direct files up to 25 MB with chunking, backpressure, progress, cancellation, and downloads
+- Peer display names exchanged over the data channel rather than stored by signaling
+- Token-based room-slot recovery after a brief browser reload or mobile suspension
 - Local connection timeline that makes negotiation understandable during a demo
 - Selected-route proof: direct host, direct STUN, or relayed TURN
 - STUN-backed ICE discovery for common cross-network connections
