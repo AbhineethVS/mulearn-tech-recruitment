@@ -65,7 +65,7 @@ function Brand() {
   return (
     <div className="brand">
       <Mark />
-      <span>Pairly</span>
+      <span>P4Pair</span>
     </div>
   )
 }
@@ -102,7 +102,7 @@ function Landing({
           <p className="context-line">Two browsers. One direct route.</p>
           <h1>A chat server that never sees your chat.</h1>
           <p className="landing-intro">
-            Pairly uses a server for the introduction, then gets out of the way.
+            P4Pair uses a server for the introduction, then gets out of the way.
             Your messages travel directly between you and one other person.
           </p>
 

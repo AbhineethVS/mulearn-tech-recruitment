@@ -1,6 +1,6 @@
-# Pairly
+# P4Pair
 
-Pairly is a two-person browser chat built for MuLearn CET Tech Team Recruitment Task 01. A small
+P4Pair is a two-person browser chat built for MuLearn CET Tech Team Recruitment Task 01. A small
 Node/WebSocket server introduces the browsers; text and files then travel directly between them
 over WebRTC data channels.
 
@@ -69,25 +69,33 @@ The repository includes `render.yaml` for a single free Render web service:
 
 1. Open [Render Blueprints](https://dashboard.render.com/blueprints).
 2. Connect this GitHub repository.
-3. Render detects `render.yaml`; approve the `pairly-p2p-chat` service.
+3. Render detects `render.yaml`; approve the `p4pair` service.
 4. Open the assigned `https://...onrender.com` URL after the build finishes.
 
-No environment variables are required for a same-origin Render deployment. Free services may take
-about a minute to wake after being idle.
+Free services may take about a minute to wake after being idle.
 
 ## STUN and TURN
 
 The client uses public Google STUN servers by default. STUN works for many home, campus, and mobile
-networks, but it does not guarantee a direct route through every NAT or firewall.
+networks, but it does not guarantee a direct route through every NAT or firewall. Managed TURN is
+the fallback for restrictive networks.
 
-Custom ICE servers can be provided at build time:
+To configure Metered TURN:
 
-```env
-VITE_ICE_SERVERS_JSON=[{"urls":"stun:stun.example.com:3478"}]
-```
+1. Create a free account at [Metered](https://dashboard.metered.ca/signup).
+2. Create a TURN credential and copy its credential API key.
+3. In Render, open the service's **Environment** page and add:
 
-For reliable production connectivity, add a TURN server with short-lived credentials. Static TURN
-credentials should not be committed to the repository.
+   ```env
+   METERED_TURN_DOMAIN=your-app-name.metered.live
+   METERED_TURN_API_KEY=your-credential-api-key
+   ```
+
+4. Save the environment variables and let Render redeploy.
+
+The API key stays on the Node server. Browsers call `/api/ice-servers`; the server fetches and
+caches the provider's ICE array without exposing the key. If TURN is unavailable, P4Pair falls back
+to STUN and explains that limitation in the connection timeline.
 
 ## How signaling differs from chat
 
@@ -99,7 +107,7 @@ The WebSocket server is used only before and around the direct connection:
 4. Notify the remaining peer when a socket leaves.
 
 Once the `chat` and `files` data channels open, their payloads move between browsers. WebRTC
-encrypts data channels with DTLS. Pairly accurately describes this as encrypted in transit; it does
+encrypts data channels with DTLS. P4Pair accurately describes this as encrypted in transit; it does
 not claim verified peer identity because fingerprints are not authenticated out of band.
 
 ## Quality checks

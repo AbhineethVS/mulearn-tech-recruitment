@@ -60,6 +60,18 @@ describe('signaling server', () => {
     await new Promise<void>((resolve) => server?.close(() => resolve()) ?? resolve())
   })
 
+  it('returns a safe STUN fallback when managed TURN is not configured', async () => {
+    server = createPeerServer()
+    await new Promise<void>((resolve) => server!.listen(0, '127.0.0.1', resolve))
+    const port = (server.address() as AddressInfo).port
+    const response = await fetch(`http://127.0.0.1:${port}/api/ice-servers`)
+
+    await expect(response.json()).resolves.toMatchObject({
+      turnConfigured: false,
+      iceServers: expect.any(Array),
+    })
+  })
+
   it('pairs two peers and relays signaling without accepting a third', async () => {
     server = createPeerServer()
     await new Promise<void>((resolve) => server!.listen(0, '127.0.0.1', resolve))

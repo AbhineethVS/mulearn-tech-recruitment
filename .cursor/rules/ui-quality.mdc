@@ -1,5 +1,5 @@
 ---
-description: Distinctive, accessible Pairly interface standards
+description: Distinctive, accessible P4Pair interface standards
 globs: "src/**/*.{tsx,css}"
 alwaysApply: false
 ---

@@ -1,4 +1,4 @@
-# Pairly agent guide
+# P4Pair agent guide
 
 Read the relevant rule in `.cursor/rules/` before changing code. Keep this file short; detailed
 decisions live in `docs/`.

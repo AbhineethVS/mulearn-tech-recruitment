@@ -7,19 +7,38 @@ const DEFAULT_ICE_SERVERS: RTCIceServer[] = [
   { urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302'] },
 ]
 
-function configuredIceServers() {
-  const value = import.meta.env.VITE_ICE_SERVERS_JSON as string | undefined
-  if (!value) return DEFAULT_ICE_SERVERS
+type IceConfiguration = {
+  iceServers: RTCIceServer[]
+  turnConfigured: boolean
+}
+
+let iceConfigurationPromise: Promise<IceConfiguration> | null = null
+
+async function loadIceConfiguration(): Promise<IceConfiguration> {
   try {
-    const parsed = JSON.parse(value) as unknown
-    return Array.isArray(parsed) ? (parsed as RTCIceServer[]) : DEFAULT_ICE_SERVERS
+    const response = await fetch('/api/ice-servers')
+    if (!response.ok) throw new Error('ICE configuration is unavailable.')
+    const value = (await response.json()) as Partial<IceConfiguration>
+    if (!Array.isArray(value.iceServers) || value.iceServers.length === 0) {
+      throw new Error('ICE configuration is invalid.')
+    }
+    return {
+      iceServers: value.iceServers,
+      turnConfigured: value.turnConfigured === true,
+    }
   } catch {
-    return DEFAULT_ICE_SERVERS
+    return { iceServers: DEFAULT_ICE_SERVERS, turnConfigured: false }
   }
 }
 
-export const createPeerConnection = () =>
-  new RTCPeerConnection({ iceServers: configuredIceServers() })
+export async function createPeerConnection() {
+  iceConfigurationPromise ??= loadIceConfiguration()
+  const configuration = await iceConfigurationPromise
+  return {
+    connection: new RTCPeerConnection({ iceServers: configuration.iceServers }),
+    turnConfigured: configuration.turnConfigured,
+  }
+}
 
 export const toDescriptionPayload = (
   description: RTCSessionDescription | null,

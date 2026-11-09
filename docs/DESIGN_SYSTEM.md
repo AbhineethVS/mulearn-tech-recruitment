@@ -1,6 +1,6 @@
-# Pairly design system
+# P4Pair design system
 
-Pairly should look like a clear network instrument without becoming a dark developer console. The
+P4Pair should look like a clear network instrument without becoming a dark developer console. The
 defining visual is a line joining two visible endpoints. Borders and rails explain structure; they
 are not decoration.
 

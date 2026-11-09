@@ -2,7 +2,7 @@
 
 ## Runtime shape
 
-Pairly is one TypeScript project with two runtimes:
+P4Pair is one TypeScript project with two runtimes:
 
 1. The React client creates rooms, negotiates WebRTC, and owns messages and files.
 2. The Node server serves the production build and accepts signaling WebSockets at `/signal`.
@@ -44,9 +44,10 @@ channel buffer crosses its threshold.
 ## Network traversal
 
 The default ICE configuration uses public STUN servers. STUN lets many peers discover a usable
-public route, but it cannot traverse every NAT or firewall. A production deployment that needs
-reliable connectivity should add TURN using temporary credentials. TURN relays encrypted WebRTC
-traffic when no direct route works; it is not the signaling server.
+public route, but it cannot traverse every NAT or firewall. In production, the server can use a
+credential-scoped Metered API key to fetch and cache managed TURN configuration for the browsers.
+TURN relays DTLS-encrypted WebRTC traffic when no direct route works; it is not the signaling
+server and it does not receive plaintext chat messages.
 
 ## Security boundaries
 

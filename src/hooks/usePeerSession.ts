@@ -86,6 +86,7 @@ export function usePeerSession() {
   const peerRef = useRef<RTCPeerConnection | null>(null)
   const chatChannelRef = useRef<RTCDataChannel | null>(null)
   const fileChannelRef = useRef<RTCDataChannel | null>(null)
+  const turnConfiguredRef = useRef(false)
   const queuedCandidatesRef = useRef<IceCandidatePayload[]>([])
   const incomingFileRef = useRef<{
     id: string
@@ -244,17 +245,29 @@ export function usePeerSession() {
     chatChannelRef.current = null
     fileChannelRef.current = null
     peerRef.current = null
+    turnConfiguredRef.current = false
     queuedCandidatesRef.current = []
     incomingFileRef.current = null
     setPeerTyping(false)
   }, [])
 
   const ensurePeer = useCallback(
-    (initiator: boolean) => {
+    async (initiator: boolean) => {
       if (peerRef.current) return peerRef.current
-      const peer = createPeerConnection()
+      const { connection: peer, turnConfigured } = await createPeerConnection()
+      if (peerRef.current) {
+        peer.close()
+        return peerRef.current
+      }
       peerRef.current = peer
-      addEvent('Peer connection created', 'The browsers are preparing a direct route.', 'active')
+      turnConfiguredRef.current = turnConfigured
+      addEvent(
+        'Peer connection created',
+        turnConfigured
+          ? 'Direct routes and a managed TURN fallback are available.'
+          : 'The browsers are preparing a direct route.',
+        'active',
+      )
 
       peer.addEventListener('icecandidate', (event) => {
         if (!event.candidate) {
@@ -274,8 +287,18 @@ export function usePeerSession() {
           addEvent('Route interrupted', 'The browser is attempting to recover the connection.', 'danger')
         } else if (peer.connectionState === 'failed') {
           changePhase('disconnected')
-          setError('The direct route failed. Check both networks and try again.')
-          addEvent('Connection failed', 'No working peer-to-peer route remained.', 'danger')
+          setError(
+            turnConfiguredRef.current
+              ? 'WebRTC could not establish either a direct or relayed route. Try again.'
+              : 'The direct route failed and no TURN fallback is configured.',
+          )
+          addEvent(
+            'Connection failed',
+            turnConfiguredRef.current
+              ? 'No working direct or TURN route remained.'
+              : 'This network combination likely requires TURN.',
+            'danger',
+          )
         }
       })
       peer.addEventListener('datachannel', (event) => attachChannel(event.channel))
@@ -299,7 +322,7 @@ export function usePeerSession() {
     try {
       changePhase('connecting')
       addEvent('Peer found', 'Creating an offer for the direct connection.', 'active')
-      const peer = ensurePeer(true)
+      const peer = await ensurePeer(true)
       await peer.setLocalDescription(await peer.createOffer())
       signalRef.current?.send({
         type: 'offer',
@@ -336,7 +359,7 @@ export function usePeerSession() {
         try {
           changePhase('connecting')
           addEvent('Offer received', 'Preparing the response in this browser.', 'active')
-          const peer = ensurePeer(false)
+          const peer = await ensurePeer(false)
           await peer.setRemoteDescription(message.description)
           await flushCandidates(peer)
           await peer.setLocalDescription(await peer.createAnswer())

@@ -1,4 +1,4 @@
-# Pairly visual source of truth
+# P4Pair visual source of truth
 
 ## Direction
 

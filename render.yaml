@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: pairly-p2p-chat
+    name: p4pair
     runtime: node
     plan: free
     buildCommand: npm ci && npm run build
