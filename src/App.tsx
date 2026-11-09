@@ -661,7 +661,13 @@ function ChatWorkspace({
   }
 
   const keyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
-    if (event.key === 'Enter' && !event.shiftKey) {
+    const usesTouchKeyboard = window.matchMedia('(pointer: coarse) and (hover: none)').matches
+    if (
+      event.key === 'Enter' &&
+      !event.shiftKey &&
+      !event.nativeEvent.isComposing &&
+      !usesTouchKeyboard
+    ) {
       event.preventDefault()
       submitMessage()
     }
