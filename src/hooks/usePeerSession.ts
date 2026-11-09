@@ -45,10 +45,17 @@ const eventTime = () =>
     second: '2-digit',
   }).format(new Date())
 
-const isPeerEnvelope = (value: unknown): value is PeerEnvelope => {
+export const isPeerEnvelope = (value: unknown): value is PeerEnvelope => {
   if (!value || typeof value !== 'object' || !('kind' in value)) return false
   const item = value as Record<string, unknown>
   if (item.kind === 'ack') return typeof item.id === 'string'
+  if (item.kind === 'seen') {
+    return (
+      Array.isArray(item.ids) &&
+      item.ids.length <= 100 &&
+      item.ids.every((id) => typeof id === 'string')
+    )
+  }
   if (item.kind === 'typing') return typeof item.active === 'boolean'
   return (
     item.kind === 'chat' &&
@@ -119,6 +126,7 @@ export function usePeerSession() {
     received: number
   } | null>(null)
   const cancelledTransfersRef = useRef(new Set<string>())
+  const pendingSeenRef = useRef(new Set<string>())
   const transferUrlsRef = useRef(new Set<string>())
   const signalHandlerRef = useRef<(message: ServerSignal) => void>(() => undefined)
   const intentionalCloseRef = useRef(false)
@@ -147,36 +155,62 @@ export function usePeerSession() {
     )
   }, [])
 
-  const handleChatMessage = useCallback((event: MessageEvent<string>) => {
-    if (typeof event.data !== 'string') return
-    try {
-      const envelope = JSON.parse(event.data) as unknown
-      if (!isPeerEnvelope(envelope)) return
-      if (envelope.kind === 'chat') {
-        setMessages((current) => [
-          ...current,
-          {
-            id: envelope.id,
-            text: envelope.text,
-            sentAt: envelope.sentAt,
-            direction: 'incoming',
-            status: 'delivered',
-          },
-        ])
-        chatChannelRef.current?.send(JSON.stringify({ kind: 'ack', id: envelope.id }))
-      } else if (envelope.kind === 'ack') {
-        setMessages((current) =>
-          current.map((message) =>
-            message.id === envelope.id ? { ...message, status: 'delivered' } : message,
-          ),
-        )
-      } else {
-        setPeerTyping(envelope.active)
-      }
-    } catch {
-      // Ignore malformed peer payloads without disrupting the channel.
-    }
+  const sendSeen = useCallback((ids: string[]) => {
+    const channel = chatChannelRef.current
+    if (channel?.readyState !== 'open' || ids.length === 0) return
+    channel.send(JSON.stringify({ kind: 'seen', ids } satisfies PeerEnvelope))
+    for (const id of ids) pendingSeenRef.current.delete(id)
   }, [])
+
+  const handleChatMessage = useCallback(
+    (event: MessageEvent<string>) => {
+      if (typeof event.data !== 'string') return
+      try {
+        const envelope = JSON.parse(event.data) as unknown
+        if (!isPeerEnvelope(envelope)) return
+        if (envelope.kind === 'chat') {
+          setMessages((current) => [
+            ...current,
+            {
+              id: envelope.id,
+              text: envelope.text,
+              sentAt: envelope.sentAt,
+              direction: 'incoming',
+              status: 'delivered',
+            },
+          ])
+          chatChannelRef.current?.send(JSON.stringify({ kind: 'ack', id: envelope.id }))
+          if (document.visibilityState === 'visible' && document.hasFocus()) {
+            sendSeen([envelope.id])
+          } else {
+            pendingSeenRef.current.add(envelope.id)
+          }
+        } else if (envelope.kind === 'ack') {
+          setMessages((current) =>
+            current.map((message) =>
+              message.id === envelope.id && message.status === 'sent'
+                ? { ...message, status: 'delivered' }
+                : message,
+            ),
+          )
+        } else if (envelope.kind === 'seen') {
+          const seenIds = new Set(envelope.ids)
+          setMessages((current) =>
+            current.map((message) =>
+              message.direction === 'outgoing' && seenIds.has(message.id)
+                ? { ...message, status: 'seen' }
+                : message,
+            ),
+          )
+        } else {
+          setPeerTyping(envelope.active)
+        }
+      } catch {
+        // Ignore malformed peer payloads without disrupting the channel.
+      }
+    },
+    [sendSeen],
+  )
 
   const handleFileMessage = useCallback(
     (event: MessageEvent<string | ArrayBuffer>) => {
@@ -283,6 +317,7 @@ export function usePeerSession() {
     localCandidatesRef.current = []
     remoteCandidatesRef.current = []
     incomingFileRef.current = null
+    pendingSeenRef.current.clear()
     setPeerTyping(false)
   }, [])
 
@@ -454,6 +489,22 @@ export function usePeerSession() {
       void handleSignal(message)
     }
   }, [handleSignal])
+
+  useEffect(() => {
+    const flushSeen = () => {
+      if (document.visibilityState !== 'visible' || !document.hasFocus()) return
+      const ids = [...pendingSeenRef.current]
+      for (let index = 0; index < ids.length; index += 100) {
+        sendSeen(ids.slice(index, index + 100))
+      }
+    }
+    document.addEventListener('visibilitychange', flushSeen)
+    window.addEventListener('focus', flushSeen)
+    return () => {
+      document.removeEventListener('visibilitychange', flushSeen)
+      window.removeEventListener('focus', flushSeen)
+    }
+  }, [sendSeen])
 
   const openSignal = useCallback(async () => {
     intentionalCloseRef.current = true

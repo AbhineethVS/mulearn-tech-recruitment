@@ -3,12 +3,13 @@ export type ChatMessage = {
   text: string
   sentAt: string
   direction: 'incoming' | 'outgoing'
-  status: 'sent' | 'delivered'
+  status: 'sent' | 'delivered' | 'seen'
 }
 
 export type PeerEnvelope =
   | { kind: 'chat'; id: string; text: string; sentAt: string }
   | { kind: 'ack'; id: string }
+  | { kind: 'seen'; ids: string[] }
   | { kind: 'typing'; active: boolean }
 
 export type FileControlEnvelope =

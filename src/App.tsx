@@ -356,6 +356,23 @@ function TransferItem({
   )
 }
 
+function MessageReceipt({ status }: { status: 'sent' | 'delivered' | 'seen' }) {
+  const label =
+    status === 'sent' ? 'Sent' : status === 'delivered' ? 'Delivered' : 'Seen'
+  return (
+    <span
+      className={`message-receipt receipt-${status}`}
+      role="img"
+      aria-label={label}
+      title={label}
+    >
+      {status === 'sent'
+        ? <Check size={14} aria-hidden="true" />
+        : <CheckCheck size={14} aria-hidden="true" />}
+    </span>
+  )
+}
+
 function ChatWorkspace({
   session,
   pwa,
@@ -532,9 +549,7 @@ function ChatWorkspace({
                     {new Date(message.sentAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                   </time>
                   {message.direction === 'outgoing' && (
-                    message.status === 'delivered'
-                      ? <CheckCheck size={14} aria-label="Delivered" />
-                      : <Check size={14} aria-label="Sent" />
+                    <MessageReceipt status={message.status} />
                   )}
                 </footer>
               </article>

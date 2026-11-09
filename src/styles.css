@@ -785,7 +785,16 @@ button:disabled {
 }
 
 .message-outgoing footer {
-  color: var(--blue-dark);
+  color: var(--muted);
+}
+
+.message-receipt {
+  display: inline-flex;
+  color: var(--faint);
+}
+
+.message-receipt.receipt-seen {
+  color: #1373c9;
 }
 
 .message-incoming {
