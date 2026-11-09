@@ -822,6 +822,166 @@ button:disabled {
   text-align: right;
 }
 
+.invite-backdrop {
+  position: fixed;
+  z-index: 45;
+  display: grid;
+  padding: 24px;
+  background: rgba(20, 32, 35, 0.34);
+  inset: 0;
+  place-items: center;
+}
+
+.invite-dialog {
+  width: min(620px, 100%);
+  border: 1px solid var(--line-strong);
+  background: var(--paper);
+  box-shadow: 12px 12px 0 rgba(20, 32, 35, 0.16);
+}
+
+.invite-dialog > header {
+  display: flex;
+  min-height: 76px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 18px;
+  border-bottom: 1px solid var(--line);
+}
+
+.invite-dialog > header > div {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 11px;
+}
+
+.invite-dialog > header > div > span:last-child {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.invite-dialog-icon {
+  display: grid;
+  width: 40px;
+  height: 40px;
+  flex: 0 0 40px;
+  place-items: center;
+  border: 1px solid #78ad9e;
+  background: var(--green-soft);
+  color: var(--green);
+}
+
+.invite-dialog h2 {
+  margin: 0;
+  font-size: 1.18rem;
+  letter-spacing: -0.025em;
+}
+
+.invite-dialog header small {
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 0.68rem;
+}
+
+.invite-dialog header button {
+  display: grid;
+  width: 42px;
+  height: 42px;
+  flex: 0 0 42px;
+  place-items: center;
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--ink);
+}
+
+.invite-dialog-body {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 22px;
+  align-items: center;
+  padding: 22px;
+}
+
+.invite-qr {
+  display: grid;
+  padding: 8px;
+  border: 1px solid var(--line-strong);
+  background: white;
+  place-items: center;
+}
+
+.invite-qr svg {
+  display: block;
+  max-width: 100%;
+  height: auto;
+}
+
+.invite-copy {
+  display: grid;
+  min-width: 0;
+  gap: 12px;
+}
+
+.invite-copy p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.86rem;
+  line-height: 1.5;
+}
+
+.invite-copy code {
+  width: fit-content;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  background: var(--canvas);
+  font-family: var(--mono);
+  font-size: 0.86rem;
+  letter-spacing: 0.08em;
+}
+
+.invite-copy > span {
+  overflow: hidden;
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 0.68rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.invite-share-status {
+  margin: 0 22px 18px;
+  color: var(--muted);
+  font-size: 0.76rem;
+}
+
+.invite-dialog > footer {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  padding: 16px 22px;
+  border-top: 1px solid var(--line);
+  background: var(--canvas);
+}
+
+.invite-dialog > footer button {
+  display: inline-flex;
+  min-height: 44px;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  border: 1px solid var(--line-strong);
+  background: var(--paper);
+  color: var(--ink);
+  font-weight: 700;
+}
+
+.invite-dialog > footer .invite-share-button {
+  border-color: var(--blue);
+  background: var(--blue);
+  color: white;
+}
+
 .chat-layout {
   display: grid;
   min-height: 0;
@@ -1944,6 +2104,40 @@ button:disabled {
 
   .connection-details-backdrop {
     padding: 12px;
+  }
+
+  .invite-backdrop {
+    align-items: end;
+    padding: 12px;
+  }
+
+  .invite-dialog {
+    max-height: calc(100dvh - 24px);
+    overflow-y: auto;
+    box-shadow: 7px 7px 0 rgba(20, 32, 35, 0.16);
+  }
+
+  .invite-dialog-body {
+    grid-template-columns: 1fr;
+    gap: 14px;
+    padding: 16px;
+  }
+
+  .invite-qr {
+    width: min(230px, 100%);
+    justify-self: center;
+  }
+
+  .invite-copy {
+    text-align: center;
+  }
+
+  .invite-copy code {
+    justify-self: center;
+  }
+
+  .invite-dialog > footer {
+    padding: 12px 16px 16px;
   }
 
   .connection-details {

@@ -3,7 +3,6 @@ import {
   ArrowUp,
   Check,
   CheckCheck,
-  Copy,
   Download,
   FileUp,
   Gauge,
@@ -15,6 +14,7 @@ import {
   Pause,
   Play,
   Radio,
+  QrCode,
   RefreshCw,
   Reply,
   ShieldCheck,
@@ -37,6 +37,7 @@ import {
   type ReactNode,
 } from 'react'
 import { normalizeRoomCode } from '../shared/protocol'
+import { InviteDialog } from './components/InviteDialog'
 import { usePeerSession, type SessionPhase } from './hooks/usePeerSession'
 import { usePwa } from './hooks/usePwa'
 import { useVoiceRecorder } from './hooks/useVoiceRecorder'
@@ -561,9 +562,9 @@ function ChatWorkspace({
   pwa: ReturnType<typeof usePwa>
 }) {
   const [draft, setDraft] = useState('')
-  const [copyState, setCopyState] = useState<'idle' | 'copied'>('idle')
   const [fileError, setFileError] = useState('')
   const [detailsOpen, setDetailsOpen] = useState(false)
+  const [inviteOpen, setInviteOpen] = useState(false)
   const [replyingTo, setReplyingTo] = useState<ChatMessage | null>(null)
   const [reactionTarget, setReactionTarget] = useState<string | null>(null)
   const messageEndRef = useRef<HTMLDivElement>(null)
@@ -636,12 +637,6 @@ function ChatWorkspace({
     return () => window.removeEventListener('keydown', closeOnEscape)
   }, [detailsOpen])
 
-  const copyInvite = async () => {
-    await navigator.clipboard.writeText(inviteUrl)
-    setCopyState('copied')
-    window.setTimeout(() => setCopyState('idle'), 1800)
-  }
-
   const submitMessage = () => {
     const replyReference: ReplyReference | undefined = replyingTo
       ? {
@@ -705,9 +700,9 @@ function ChatWorkspace({
         <div className="room-identity">
           <span>Room</span>
           <code>{session.roomCode}</code>
-          <button className="copy-button" type="button" onClick={copyInvite}>
-            {copyState === 'copied' ? <Check size={16} /> : <Copy size={16} />}
-            {copyState === 'copied' ? 'Copied' : 'Copy invite'}
+          <button className="copy-button" type="button" onClick={() => setInviteOpen(true)}>
+            <QrCode size={16} />
+            Invite
           </button>
         </div>
         <div className="workspace-actions">
@@ -718,6 +713,12 @@ function ChatWorkspace({
           </button>
         </div>
       </header>
+      <InviteDialog
+        open={inviteOpen}
+        roomCode={session.roomCode}
+        inviteUrl={inviteUrl}
+        onClose={() => setInviteOpen(false)}
+      />
 
       <ConnectionRail
         phase={session.phase}
@@ -741,7 +742,9 @@ function ChatWorkspace({
                     <span className="empty-symbol"><Link2 size={27} /></span>
                     <h2>Your side is ready.</h2>
                     <p>Send the invitation link to one person. This screen will update when their browser arrives.</p>
-                    <button type="button" onClick={copyInvite}><Copy size={17} /> Copy invitation link</button>
+                    <button type="button" onClick={() => setInviteOpen(true)}>
+                      <QrCode size={17} /> Show invitation
+                    </button>
                   </>
                 ) : session.phase === 'connected' ? (
                   <>
