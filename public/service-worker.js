@@ -1,4 +1,4 @@
-const CACHE_NAME = 'p4pair-shell-v1'
+const CACHE_NAME = 'p4pair-shell-v2'
 const STATIC_PATHS = [
   '/manifest.webmanifest',
   '/favicon.svg',

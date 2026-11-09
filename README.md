@@ -10,7 +10,8 @@ over WebRTC data channels.
 - Typed WebSocket signaling for SDP offers, answers, and ICE candidates
 - Real-time peer-to-peer text messages
 - Explicit waiting, connecting, connected, reconnecting, disconnected, and failed states
-- Delivery acknowledgements and typing state sent peer to peer
+- Single-tick sent, double-tick delivered, and blue-tick seen receipts sent peer to peer
+- Two-minute peer-to-peer voice messages with live and playback waveforms
 - Direct files up to 25 MB with chunking, backpressure, progress, cancellation, and downloads
 - Local connection timeline that makes negotiation understandable during a demo
 - Selected-route proof: direct host, direct STUN, or relayed TURN
@@ -18,8 +19,8 @@ over WebRTC data channels.
 - Installable PWA shell with explicit offline and update states
 - Responsive, keyboard-accessible interface
 
-The signaling server does not receive chat text or file bytes. Messages are held only in the two
-open pages and disappear when the page closes.
+The signaling server does not receive chat text, voice recordings, or file bytes. Conversation
+content is held only in the two open pages and disappears when the page closes.
 
 ## Stack
 
@@ -48,8 +49,9 @@ No account, database, OAuth provider, or secret is required.
 
 ## Install as an app
 
-On supported desktop and Android browsers, use P4Pair's Install prompt or the browser's install
-menu. On iPhone or iPad, open P4Pair in Safari, tap Share, and choose **Add to Home Screen**.
+On supported desktop and Android browsers, use the Install button in P4Pair's navigation, its
+dismissible install prompt, or the browser's install menu. On iPhone or iPad, open P4Pair in
+Safari, tap Share, and choose **Add to Home Screen**.
 
 The service worker caches only the versioned frontend shell. Signaling, health checks, and dynamic
 ICE/TURN configuration remain network-only; opening the cached interface offline does not create a

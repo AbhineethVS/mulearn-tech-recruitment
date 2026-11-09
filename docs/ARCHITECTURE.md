@@ -37,9 +37,15 @@ before `setRemoteDescription` are queued and applied afterward.
 ## Data channels
 
 `chat` is a reliable ordered channel carrying JSON envelopes for text, delivery acknowledgements,
-and typing state. `files` is a separate reliable ordered channel so file buffering does not share
-the chat protocol. Files are capped at 25 MB, split into 16 KiB binary chunks, and paused when the
-channel buffer crosses its threshold.
+seen receipts, and typing state. One tick means the local browser wrote the message to the open
+data channel, two ticks mean the peer acknowledged it, and blue ticks mean the peer displayed the
+conversation in a visible, focused page.
+
+`files` is a separate reliable ordered channel so binary buffering does not share the chat
+protocol. Files are capped at 25 MB, split into 16 KiB binary chunks, and paused when the channel
+buffer crosses its threshold. Voice messages use this same bounded transfer path with typed voice
+metadata, a browser-selected audio codec, a two-minute recording limit, and waveform samples for
+the interface. Audio bytes never enter signaling or the service-worker cache.
 
 After ICE connects, the client reads the selected candidate pair through `RTCPeerConnection`
 statistics. Host-only pairs are shown as direct host routes, server-reflexive pairs as direct STUN
