@@ -25,6 +25,7 @@ import {
   Trash2,
   Unplug,
   UserRound,
+  Users,
   Wifi,
   X,
 } from 'lucide-react'
@@ -38,9 +39,9 @@ import {
   type KeyboardEvent,
   type ReactNode,
 } from 'react'
-import { normalizeRoomCode } from '../shared/protocol'
+import { normalizeRoomCode, type RoomType } from '../shared/protocol'
 import { InviteDialog } from './components/InviteDialog'
-import { usePeerSession, type SessionPhase } from './hooks/usePeerSession'
+import { usePeerSession, type SessionPeer, type SessionPhase } from './hooks/usePeerSession'
 import { usePwa } from './hooks/usePwa'
 import { useVoiceRecorder } from './hooks/useVoiceRecorder'
 import type { ConnectionRoute } from './lib/peer-connection'
@@ -58,7 +59,7 @@ const phaseCopy: Record<
 > = {
   idle: { label: 'Ready', detail: 'Create or join a private room.', tone: 'quiet' },
   signaling: { label: 'Contacting signal', detail: 'Opening the introduction channel.', tone: 'active' },
-  waiting: { label: 'Waiting for peer', detail: 'Share the room link with one person.', tone: 'active' },
+  waiting: { label: 'Waiting for peer', detail: 'Share the room link with another browser.', tone: 'active' },
   connecting: { label: 'Connecting directly', detail: 'The browsers are negotiating a route.', tone: 'active' },
   connected: { label: 'Direct channel open', detail: 'Messages bypass the signaling server.', tone: 'good' },
   reconnecting: { label: 'Recovering route', detail: 'WebRTC is checking the connection.', tone: 'active' },
@@ -126,7 +127,7 @@ function Landing({
 }: {
   roomInput: string
   onRoomInput: (value: string) => void
-  onCreate: () => void
+  onCreate: (roomType: RoomType) => void
   onJoin: () => void
   busy: boolean
   error: string
@@ -157,7 +158,7 @@ function Landing({
           <h1>A chat server that never sees your chat.</h1>
           <p className="landing-intro">
             P4Pair uses a server for the introduction, then gets out of the way.
-            Your messages travel directly between you and one other person.
+            Your messages travel directly between browsers in a private line or small group.
           </p>
 
           <div className="route-demo" aria-label="A direct route between two browsers">
@@ -176,9 +177,9 @@ function Landing({
         </section>
 
         <section className="room-panel" aria-labelledby="room-panel-title">
-          <div className="panel-index">Start a private line</div>
+          <div className="panel-index">Start a direct room</div>
           <h2 id="room-panel-title">Meet in a room</h2>
-          <p>Rooms hold two people and disappear when both leave.</p>
+          <p>Choose a full-featured private line or a text group for up to four people.</p>
 
           <label className="name-field">
             <span>Your name</span>
@@ -192,10 +193,26 @@ function Landing({
             <small>Shared with your peer over WebRTC, not stored on the server.</small>
           </label>
 
-          <button className="primary-action" type="button" onClick={onCreate} disabled={busy || !online || !nameReady}>
-            <Link2 size={19} />
-            {busy ? 'Opening signal…' : 'Create a room'}
-          </button>
+          <div className="create-room-actions">
+            <button
+              className="primary-action"
+              type="button"
+              onClick={() => onCreate('private')}
+              disabled={busy || !online || !nameReady}
+            >
+              <Link2 size={19} />
+              {busy ? 'Opening signal…' : 'Private room'}
+            </button>
+            <button
+              className="group-action"
+              type="button"
+              onClick={() => onCreate('group')}
+              disabled={busy || !online || !nameReady}
+            >
+              <Users size={19} />
+              Group room
+            </button>
+          </div>
 
           <div className="or-rule"><span>or join with a code</span></div>
 
@@ -242,6 +259,8 @@ function ConnectionRail({
   route,
   localName,
   peerName,
+  roomType,
+  peers,
   detailsOpen,
   onToggleDetails,
 }: {
@@ -249,11 +268,51 @@ function ConnectionRail({
   route: ConnectionRoute | null
   localName: string
   peerName: string
+  roomType: RoomType
+  peers: SessionPeer[]
   detailsOpen: boolean
-  onToggleDetails: () => void
+  onToggleDetails: (peerId?: string) => void
 }) {
   const status = phaseCopy[phase]
   const label = phase === 'connected' && route ? route.label : status.label
+  if (roomType === 'group') {
+    const slots = Math.max(0, 3 - peers.length)
+    return (
+      <section className="group-connection-rail" aria-label="Group participants">
+        <div className="group-rail-summary">
+          <Users size={17} />
+          <span><b>{peers.length + 1} of 4</b><small>Group room</small></span>
+        </div>
+        <div className="group-participants">
+          <span className="group-participant participant-local">
+            <UserRound size={15} />
+            <span><b>{localName || 'You'}</b><small>This browser</small></span>
+          </span>
+          {peers.map((peer) => (
+            <button
+              type="button"
+              className={`group-participant participant-${peer.phase}`}
+              onClick={() => onToggleDetails(peer.peerId)}
+              aria-expanded={detailsOpen}
+              key={peer.peerId}
+            >
+              <UserRound size={15} />
+              <span>
+                <b>{peer.name || 'Connecting peer'}</b>
+                <small>{peer.phase}</small>
+              </span>
+            </button>
+          ))}
+          {Array.from({ length: slots }, (_, index) => (
+            <span className="group-participant participant-empty" key={`empty-${index}`}>
+              <UserRound size={15} />
+              <span><b>Open place</b><small>Invite someone</small></span>
+            </span>
+          ))}
+        </div>
+      </section>
+    )
+  }
   return (
     <section className={`connection-rail tone-${status.tone}`} aria-label="Connection route">
       <div className="rail-peer">
@@ -265,7 +324,7 @@ function ConnectionRail({
         <button
           className="rail-status"
           type="button"
-          onClick={onToggleDetails}
+          onClick={() => onToggleDetails(peers[0]?.peerId)}
           aria-expanded={detailsOpen}
           aria-controls="connection-details"
         >
@@ -284,13 +343,17 @@ function ConnectionRail({
 
 function ConnectionDetails({
   session,
+  selectedPeerId,
   onClose,
 }: {
   session: ReturnType<typeof usePeerSession>
+  selectedPeerId?: string
   onClose: () => void
 }) {
-  const route = session.route
-  const quality = session.quality
+  const selectedPeer =
+    session.peers.find((peer) => peer.peerId === selectedPeerId) ?? session.peers[0]
+  const route = selectedPeer?.route ?? session.route
+  const quality = selectedPeer?.quality ?? session.quality
   return (
     <div className="connection-details-backdrop" onClick={onClose}>
       <section
@@ -339,7 +402,7 @@ function ConnectionDetails({
           <div><dt>Transport</dt><dd>WebRTC / SCTP</dd></div>
           <div><dt>Signaling</dt><dd>WebSocket</dd></div>
           <div><dt>Route</dt><dd>{route?.label ?? 'Pending'}</dd></div>
-          <div><dt>Peer ID</dt><dd>{session.peerId.slice(0, 8) || 'Pending'}</dd></div>
+          <div><dt>Peer ID</dt><dd>{selectedPeer?.peerId.slice(0, 8) || 'Pending'}</dd></div>
         </dl>
       </section>
     </div>
@@ -464,15 +527,21 @@ function TransferItem({
   )
 }
 
-function MessageReceipt({ status }: { status: 'sent' | 'delivered' | 'seen' }) {
+function MessageReceipt({
+  status,
+  summary,
+}: {
+  status: 'sent' | 'delivered' | 'seen'
+  summary?: string
+}) {
   const label =
     status === 'sent' ? 'Sent' : status === 'delivered' ? 'Delivered' : 'Seen'
   return (
     <span
       className={`message-receipt receipt-${status}`}
       role="img"
-      aria-label={label}
-      title={label}
+      aria-label={summary ?? label}
+      title={summary ?? label}
     >
       {status === 'sent'
         ? <Check size={14} aria-hidden="true" />
@@ -483,7 +552,10 @@ function MessageReceipt({ status }: { status: 'sent' | 'delivered' | 'seen' }) {
 
 function MessageItem({
   message,
-  peerName,
+  localPeerId,
+  peerNames,
+  authorName,
+  receiptSummary,
   reactionOpen,
   onReply,
   onToggleReactions,
@@ -494,7 +566,10 @@ function MessageItem({
   onDelete,
 }: {
   message: ChatMessage
-  peerName: string
+  localPeerId: string
+  peerNames: Record<string, string>
+  authorName: string
+  receiptSummary?: string
   reactionOpen: boolean
   onReply: () => void
   onToggleReactions: () => void
@@ -504,8 +579,12 @@ function MessageItem({
   onEdit: () => void
   onDelete: () => void
 }) {
+  const reactions = Object.entries(message.reactions)
   return (
     <article className={`message message-${message.direction}`}>
+      {message.direction === 'incoming' && (
+        <span className="message-author">{authorName || 'Peer'}</span>
+      )}
       {!message.deletedAt && message.replyTo && (
         <blockquote className="message-reply">
           <b>{message.replyTo.author}</b>
@@ -525,16 +604,24 @@ function MessageItem({
           })}
         </time>
         {message.editedAt && !message.deletedAt && <span>edited</span>}
-        {message.direction === 'outgoing' && <MessageReceipt status={message.status} />}
+        {message.direction === 'outgoing' && (
+          <MessageReceipt status={message.status} summary={receiptSummary} />
+        )}
       </footer>
-      {!message.deletedAt && (message.reactions.local || message.reactions.peer) && (
+      {!message.deletedAt && reactions.length > 0 && (
         <div className="message-reactions" aria-label="Message reactions">
-          {message.reactions.local && (
-            <span title="Your reaction">{message.reactions.local}</span>
-          )}
-          {message.reactions.peer && (
-            <span title={`${peerName || 'Peer'} reacted`}>{message.reactions.peer}</span>
-          )}
+          {reactions.map(([reactionPeerId, emoji]) => (
+            <span
+              key={reactionPeerId}
+              title={
+                reactionPeerId === localPeerId
+                  ? 'Your reaction'
+                  : `${peerNames[reactionPeerId] || 'Peer'} reacted`
+              }
+            >
+              {emoji}
+            </span>
+          ))}
         </div>
       )}
       {!message.deletedAt && (
@@ -599,6 +686,7 @@ function ChatWorkspace({
   const [draft, setDraft] = useState('')
   const [fileError, setFileError] = useState('')
   const [detailsOpen, setDetailsOpen] = useState(false)
+  const [selectedDetailPeerId, setSelectedDetailPeerId] = useState<string>()
   const [inviteOpen, setInviteOpen] = useState(false)
   const [replyingTo, setReplyingTo] = useState<ChatMessage | null>(null)
   const [editingMessage, setEditingMessage] = useState<ChatMessage | null>(null)
@@ -623,6 +711,11 @@ function ChatWorkspace({
   )
   const voice = useVoiceRecorder(handleVoiceRecorded)
   const { cancel: cancelVoice, recording: voiceRecording } = voice
+  const peerNames = useMemo(
+    () => Object.fromEntries(session.peers.map((peer) => [peer.peerId, peer.name])),
+    [session.peers],
+  )
+  const typingPeers = session.peers.filter((peer) => peer.typing)
   const timeline = useMemo(
     () =>
       [
@@ -691,7 +784,8 @@ function ChatWorkspace({
           author:
             replyingTo.direction === 'outgoing'
               ? session.displayName.trim() || 'You'
-              : session.peerName || 'Peer',
+              : peerNames[replyingTo.authorId] || replyingTo.authorName || 'Peer',
+          authorId: replyingTo.authorId,
         }
       : undefined
     if (session.sendMessage(draft, replyReference)) {
@@ -762,6 +856,7 @@ function ChatWorkspace({
       <InviteDialog
         open={inviteOpen}
         roomCode={session.roomCode}
+        roomType={session.roomType}
         inviteUrl={inviteUrl}
         onClose={() => setInviteOpen(false)}
       />
@@ -771,11 +866,20 @@ function ChatWorkspace({
         route={session.route}
         localName={session.displayName.trim()}
         peerName={session.peerName}
+        roomType={session.roomType}
+        peers={session.peers}
         detailsOpen={detailsOpen}
-        onToggleDetails={() => setDetailsOpen((current) => !current)}
+        onToggleDetails={(selectedPeerId) => {
+          setSelectedDetailPeerId(selectedPeerId)
+          setDetailsOpen((current) => !current || selectedDetailPeerId !== selectedPeerId)
+        }}
       />
       {detailsOpen && (
-        <ConnectionDetails session={session} onClose={() => setDetailsOpen(false)} />
+        <ConnectionDetails
+          session={session}
+          selectedPeerId={selectedDetailPeerId}
+          onClose={() => setDetailsOpen(false)}
+        />
       )}
 
       <main className="chat-layout">
@@ -787,7 +891,11 @@ function ChatWorkspace({
                   <>
                     <span className="empty-symbol"><Link2 size={27} /></span>
                     <h2>Your side is ready.</h2>
-                    <p>Send the invitation link to one person. This screen will update when their browser arrives.</p>
+                    <p>
+                      {session.roomType === 'group'
+                        ? 'Share the invitation with up to three people. This screen updates as they arrive.'
+                        : 'Send the invitation link to one person. This screen updates when their browser arrives.'}
+                    </p>
                     <button type="button" onClick={() => setInviteOpen(true)}>
                       <QrCode size={17} /> Show invitation
                     </button>
@@ -813,7 +921,21 @@ function ChatWorkspace({
                 <MessageItem
                   key={entry.id}
                   message={entry.message}
-                  peerName={session.peerName}
+                  localPeerId={session.peerId}
+                  peerNames={peerNames}
+                  authorName={
+                    peerNames[entry.message.authorId] || entry.message.authorName || 'Peer'
+                  }
+                  receiptSummary={
+                    entry.message.direction === 'outgoing'
+                      ? (() => {
+                          const values = Object.values(entry.message.receipts)
+                          const seen = values.filter((value) => value === 'seen').length
+                          const delivered = values.filter((value) => value !== 'sent').length
+                          return `${seen} of ${values.length} seen; ${delivered} delivered`
+                        })()
+                      : undefined
+                  }
                   reactionOpen={reactionTarget === entry.id}
                   menuOpen={actionMenuTarget === entry.id}
                   onReply={() => {
@@ -860,9 +982,12 @@ function ChatWorkspace({
               ),
             )}
 
-            {session.peerTyping && (
+            {typingPeers.length > 0 && (
               <p className="typing-indicator">
-                {session.peerName || 'Peer'} is typing<span>…</span>
+                {typingPeers.length === 1
+                  ? `${typingPeers[0].name || 'Peer'} is typing`
+                  : `${typingPeers.length} people are typing`}
+                <span>…</span>
               </p>
             )}
             <div ref={messageEndRef} />
@@ -880,6 +1005,11 @@ function ChatWorkspace({
             </div>
           )}
 
+          {session.roomType === 'group' && (
+            <p className="group-text-note">
+              <Users size={14} /> Group rooms are text-only; private rooms keep files and voice notes.
+            </p>
+          )}
           <form
             className={`composer ${voice.recording ? 'composer-recording' : ''}`}
             onSubmit={(event) => {
@@ -916,7 +1046,12 @@ function ChatWorkspace({
               <div className="composer-reply">
                 <Reply size={15} />
                 <span>
-                  <b>Replying to {replyingTo.direction === 'outgoing' ? 'yourself' : session.peerName || 'peer'}</b>
+                  <b>
+                    Replying to{' '}
+                    {replyingTo.direction === 'outgoing'
+                      ? 'yourself'
+                      : peerNames[replyingTo.authorId] || 'peer'}
+                  </b>
                   <small>{replyingTo.text}</small>
                 </span>
                 <button type="button" onClick={() => setReplyingTo(null)} aria-label="Cancel reply">
@@ -958,7 +1093,7 @@ function ChatWorkspace({
                     className="attach-button"
                     type="button"
                     onClick={() => fileInputRef.current?.click()}
-                    disabled={session.phase !== 'connected'}
+                    disabled={session.phase !== 'connected' || session.roomType === 'group'}
                     aria-label="Send a file"
                     title="Send a file up to 25 MB"
                   >
@@ -985,7 +1120,7 @@ function ChatWorkspace({
                     setDraft('')
                     void voice.start()
                   }}
-                    disabled={session.phase !== 'connected'}
+                    disabled={session.phase !== 'connected' || session.roomType === 'group'}
                     aria-label="Record a voice message"
                     title="Record voice message"
                   >
@@ -1007,7 +1142,14 @@ function ChatWorkspace({
           </header>
           <div className="privacy-explainer">
             <ShieldCheck size={18} />
-            <p><b>The server handles introductions.</b><span>Messages and files use the WebRTC data channel.</span></p>
+            <p>
+              <b>The server handles introductions.</b>
+              <span>
+                {session.roomType === 'group'
+                  ? 'Group messages fan out over direct WebRTC data channels.'
+                  : 'Messages and files use the WebRTC data channel.'}
+              </span>
+            </p>
           </div>
           <ol className="event-list">
             {session.events.map((event) => (
@@ -1104,7 +1246,7 @@ export default function App() {
         <Brand />
         <span className="large-spinner"><Activity size={28} /></span>
         <h1>Opening the signal</h1>
-        <p>Preparing a private room for the two browsers.</p>
+        <p>Preparing a direct room for the browsers.</p>
       </div>
     )
   } else if (session.roomCode) {
@@ -1114,7 +1256,7 @@ export default function App() {
       <Landing
         roomInput={roomInput}
         onRoomInput={setRoomInput}
-        onCreate={() => void session.createRoom()}
+        onCreate={(roomType) => void session.createRoom(roomType)}
         onJoin={() => void session.joinRoom(roomInput)}
         busy={session.phase === 'signaling'}
         error={session.error}

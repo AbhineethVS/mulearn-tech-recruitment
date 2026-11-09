@@ -21,11 +21,13 @@ async function copyText(value: string) {
 export function InviteDialog({
   open,
   roomCode,
+  roomType,
   inviteUrl,
   onClose,
 }: {
   open: boolean
   roomCode: string
+  roomType: 'private' | 'group'
   inviteUrl: string
   onClose: () => void
 }) {
@@ -64,8 +66,8 @@ export function InviteDialog({
     }
     try {
       await navigator.share({
-        title: 'Join my P4Pair room',
-        text: `Join room ${roomCode} for a peer-to-peer chat.`,
+        title: `Join my P4Pair ${roomType} room`,
+        text: `Join room ${roomCode} for a peer-to-peer ${roomType} chat.`,
         url: inviteUrl,
       })
     } catch (caught) {
@@ -113,7 +115,9 @@ export function InviteDialog({
             />
           </div>
           <div className="invite-copy">
-            <p>Scan this code with another device, or share the private room link.</p>
+            <p>
+              Scan this code with another device, or share the {roomType} room link.
+            </p>
             <code>{roomCode}</code>
             <span title={inviteUrl}>{inviteUrl}</span>
           </div>

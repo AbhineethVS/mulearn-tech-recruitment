@@ -7,7 +7,8 @@ alwaysApply: false
 # WebRTC and signaling security
 
 - Validate every WebSocket payload at runtime and cap signaling messages at 64 KiB.
-- Generate room codes with cryptographic randomness, limit rooms to two peers, and delete empty rooms.
+- Generate room codes with cryptographic randomness, cap private rooms at two and group rooms at
+  four peers, and delete empty rooms.
 - Relay only SDP descriptions and ICE candidates; never log or route chat text or file bytes.
 - Check WebSocket origins in production and use `wss:` whenever the page uses HTTPS.
 - Queue ICE candidates until the remote description exists, and close every channel/listener on leave.

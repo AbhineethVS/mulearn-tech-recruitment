@@ -1,19 +1,21 @@
 # P4Pair
 
-P4Pair is a two-person browser chat built for MuLearn CET Tech Team Recruitment Task 01. A small
-Node/WebSocket server introduces the browsers; text and files then travel directly between them
-over WebRTC data channels.
+P4Pair is a peer-to-peer browser chat built for MuLearn CET Tech Team Recruitment Task 01. A small
+Node/WebSocket server introduces the browsers; conversation content then travels directly between
+them over WebRTC data channels.
 
 ## Features
 
-- Ephemeral two-person rooms with shareable invitation links
+- Ephemeral two-person private rooms and text-only group rooms for up to four
+- Locally generated QR invitations, native sharing, and clipboard fallback
 - Typed WebSocket signaling for SDP offers, answers, and ICE candidates
 - Real-time peer-to-peer text messages
 - Explicit waiting, connecting, connected, reconnecting, disconnected, and failed states
 - Single-tick sent, double-tick delivered, and blue-tick seen receipts sent peer to peer
 - Quoted message replies and emoji reactions sent peer to peer
-- Two-minute peer-to-peer voice messages with live and playback waveforms
-- Direct files up to 25 MB with chunking, backpressure, progress, cancellation, and downloads
+- Author-controlled message editing and cooperative deletion
+- Two-minute private-room voice messages with live and playback waveforms
+- Private-room files up to 25 MB with chunking, backpressure, progress, cancellation, and downloads
 - Peer display names exchanged over the data channel rather than stored by signaling
 - Token-based room-slot recovery after a brief browser reload or mobile suspension
 - Local connection timeline that makes negotiation understandable during a demo
@@ -24,7 +26,7 @@ over WebRTC data channels.
 - Responsive, keyboard-accessible interface
 
 The signaling server does not receive chat text, voice recordings, or file bytes. Conversation
-content is held only in the two open pages and disappears when the page closes.
+content is held only in the open pages and disappears when the page closes.
 
 ## Stack
 
@@ -40,8 +42,8 @@ npm install
 npm run dev
 ```
 
-Open `http://localhost:5173` in two browser tabs. Create a room in the first tab, enter its code in
-the second, and send a message after both pages show “Direct channel open.”
+Open `http://localhost:5173` in browser tabs. Create a private or group room in the first tab,
+enter its code in the others, and send a message after the direct channels open.
 
 `npm run dev` starts:
 
@@ -119,9 +121,9 @@ to STUN and explains that limitation in the connection timeline.
 The WebSocket server is used only before and around the direct connection:
 
 1. Create or join an in-memory room.
-2. Forward an SDP offer and answer.
-3. Forward ICE candidates describing possible network routes.
-4. Notify the remaining peer when a socket leaves.
+2. Route addressed SDP offers and answers to members of that room.
+3. Route addressed ICE candidates describing possible network routes.
+4. Notify the remaining peers when a member joins or leaves.
 
 Once the `chat` and `files` data channels open, their payloads move between browsers. WebRTC
 encrypts data channels with DTLS. P4Pair accurately describes this as encrypted in transit; it does
@@ -139,7 +141,7 @@ production builds.
 ## Project map
 
 - `shared/protocol.ts` — signaling message types and runtime validation
-- `server/room-manager.ts` — ephemeral two-peer rooms
+- `server/room-manager.ts` — ephemeral private and four-person group rooms
 - `server/index.ts` — HTTP, WebSocket signaling, origin checks, and heartbeat cleanup
 - `src/hooks/usePeerSession.ts` — WebRTC state machine, chat, and files
 - `src/hooks/usePwa.ts` — installation, updates, and connectivity state
@@ -154,4 +156,5 @@ production builds.
   sessions.
 - There is no TURN service configured by default.
 - Refreshing a page clears its local messages and files.
-- Group chat is intentionally deferred; a mesh would require one peer connection per participant.
+- Group rooms are text-only; files and voice notes remain private-room features.
+- Four-person groups use a full mesh, so larger rooms are intentionally unsupported.

@@ -4,21 +4,22 @@ export type ReplyReference = {
   id: string
   text: string
   author: string
+  authorId?: string
 }
 
 export type ChatMessage = {
   id: string
   text: string
   sentAt: string
+  authorId: string
+  authorName: string
   direction: 'incoming' | 'outgoing'
   status: 'sent' | 'delivered' | 'seen'
+  receipts: Record<string, 'sent' | 'delivered' | 'seen'>
   editedAt?: string
   deletedAt?: string
   replyTo?: ReplyReference
-  reactions: {
-    local?: EmojiReaction
-    peer?: EmojiReaction
-  }
+  reactions: Record<string, EmojiReaction>
 }
 
 export type PeerEnvelope =

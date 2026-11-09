@@ -3,6 +3,7 @@ import {
   ROOM_CODE_PATTERN,
   normalizeRoomCode,
   type IceCandidatePayload,
+  type RoomType,
   type ServerSignal,
 } from '../../shared/protocol'
 import {
@@ -37,6 +38,26 @@ export type SessionPhase =
   | 'reconnecting'
   | 'disconnected'
   | 'failed'
+
+export type SessionPeer = {
+  peerId: string
+  name: string
+  phase: 'connecting' | 'connected' | 'disconnected' | 'failed'
+  route: ConnectionRoute | null
+  quality: ConnectionQuality | null
+  typing: boolean
+}
+
+type PeerLink = SessionPeer & {
+  connection: RTCPeerConnection
+  chatChannel: RTCDataChannel | null
+  fileChannel: RTCDataChannel | null
+  queuedCandidates: IceCandidatePayload[]
+  localCandidates: string[]
+  remoteCandidates: string[]
+  turnConfigured: boolean
+  qualityTimer: number | null
+}
 
 const MAX_MESSAGE_LENGTH = 4_000
 const MAX_FILE_SIZE = 25 * 1024 * 1024
@@ -99,7 +120,9 @@ const isReplyReference = (value: unknown): value is ReplyReference => {
     typeof reply.text === 'string' &&
     reply.text.length <= 180 &&
     typeof reply.author === 'string' &&
-    reply.author.length <= 24
+    reply.author.length <= 24 &&
+    (reply.authorId === undefined ||
+      (typeof reply.authorId === 'string' && reply.authorId.length <= 128))
   )
 }
 
@@ -190,7 +213,9 @@ const isFileControl = (value: unknown): value is FileControlEnvelope => {
 export function usePeerSession() {
   const [phase, setPhase] = useState<SessionPhase>('idle')
   const [roomCode, setRoomCode] = useState('')
+  const [roomType, setRoomType] = useState<RoomType>('private')
   const [peerId, setPeerId] = useState('')
+  const [peers, setPeers] = useState<SessionPeer[]>([])
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [transfers, setTransfers] = useState<FileTransfer[]>([])
   const [events, setEvents] = useState<ConnectionEvent[]>([])
@@ -209,13 +234,8 @@ export function usePeerSession() {
   const [peerName, setPeerName] = useState('')
 
   const signalRef = useRef<SignalClient | null>(null)
-  const peerRef = useRef<RTCPeerConnection | null>(null)
-  const chatChannelRef = useRef<RTCDataChannel | null>(null)
-  const fileChannelRef = useRef<RTCDataChannel | null>(null)
-  const turnConfiguredRef = useRef(false)
-  const queuedCandidatesRef = useRef<IceCandidatePayload[]>([])
-  const localCandidatesRef = useRef<string[]>([])
-  const remoteCandidatesRef = useRef<string[]>([])
+  const linksRef = useRef(new Map<string, PeerLink>())
+  const localPeerIdRef = useRef('')
   const incomingFileRef = useRef<{
     id: string
     name: string
@@ -229,19 +249,48 @@ export function usePeerSession() {
     received: number
   } | null>(null)
   const cancelledTransfersRef = useRef(new Set<string>())
-  const pendingSeenRef = useRef(new Set<string>())
+  const pendingSeenRef = useRef(new Map<string, Set<string>>())
   const transferUrlsRef = useRef(new Set<string>())
   const signalHandlerRef = useRef<(message: ServerSignal) => void>(() => undefined)
   const intentionalCloseRef = useRef(false)
   const phaseRef = useRef<SessionPhase>('idle')
   const displayNameRef = useRef(displayName)
-  const qualityTimerRef = useRef<number | null>(null)
   const pendingRoomCodeRef = useRef('')
   const resumeAttemptedRef = useRef(false)
 
   const changePhase = useCallback((next: SessionPhase) => {
     phaseRef.current = next
     setPhase(next)
+  }, [])
+
+  const syncPeers = useCallback(() => {
+    const nextPeers = [...linksRef.current.values()].map(
+      ({ peerId: remotePeerId, name, phase: linkPhase, route: linkRoute, quality: linkQuality, typing }) => ({
+        peerId: remotePeerId,
+        name,
+        phase: linkPhase,
+        route: linkRoute,
+        quality: linkQuality,
+        typing,
+      }),
+    )
+    setPeers(nextPeers)
+    const first = nextPeers[0]
+    setPeerName(first?.name ?? '')
+    setPeerTyping(nextPeers.some((peer) => peer.typing))
+    setRoute(first?.route ?? null)
+    setQuality(first?.quality ?? null)
+  }, [])
+
+  const broadcastChat = useCallback((envelope: PeerEnvelope) => {
+    const recipients: string[] = []
+    const payload = JSON.stringify(envelope)
+    for (const link of linksRef.current.values()) {
+      if (link.chatChannel?.readyState !== 'open') continue
+      link.chatChannel.send(payload)
+      recipients.push(link.peerId)
+    }
+    return recipients
   }, [])
 
   const addEvent = useCallback(
@@ -262,64 +311,101 @@ export function usePeerSession() {
     )
   }, [])
 
-  const sendSeen = useCallback((ids: string[]) => {
-    const channel = chatChannelRef.current
+  const sendSeen = useCallback((remotePeerId: string, ids: string[]) => {
+    const channel = linksRef.current.get(remotePeerId)?.chatChannel
     if (channel?.readyState !== 'open' || ids.length === 0) return
     channel.send(JSON.stringify({ kind: 'seen', ids } satisfies PeerEnvelope))
-    for (const id of ids) pendingSeenRef.current.delete(id)
+    const pending = pendingSeenRef.current.get(remotePeerId)
+    for (const id of ids) pending?.delete(id)
   }, [])
 
   const handleChatMessage = useCallback(
-    (event: MessageEvent<string>) => {
+    (remotePeerId: string, event: MessageEvent<string>) => {
       if (typeof event.data !== 'string') return
       try {
         const envelope = JSON.parse(event.data) as unknown
         if (!isPeerEnvelope(envelope)) return
         if (envelope.kind === 'chat') {
-          setMessages((current) => [
-            ...current,
-            {
-              id: envelope.id,
-              text: envelope.text,
-              sentAt: envelope.sentAt,
-              direction: 'incoming',
-              status: 'delivered',
-              replyTo: envelope.replyTo,
-              reactions: {},
-            },
-          ])
-          chatChannelRef.current?.send(JSON.stringify({ kind: 'ack', id: envelope.id }))
+          setMessages((current) =>
+            current.some((message) => message.id === envelope.id)
+              ? current
+              : [
+                  ...current,
+                  {
+                    id: envelope.id,
+                    text: envelope.text,
+                    sentAt: envelope.sentAt,
+                    authorId: remotePeerId,
+                    authorName: linksRef.current.get(remotePeerId)?.name || 'Peer',
+                    direction: 'incoming',
+                    status: 'delivered',
+                    receipts: {},
+                    replyTo: envelope.replyTo,
+                    reactions: {},
+                  },
+                ],
+          )
+          linksRef.current
+            .get(remotePeerId)
+            ?.chatChannel?.send(JSON.stringify({ kind: 'ack', id: envelope.id }))
           if (document.visibilityState === 'visible' && document.hasFocus()) {
-            sendSeen([envelope.id])
+            sendSeen(remotePeerId, [envelope.id])
           } else {
-            pendingSeenRef.current.add(envelope.id)
+            const pending = pendingSeenRef.current.get(remotePeerId) ?? new Set<string>()
+            pending.add(envelope.id)
+            pendingSeenRef.current.set(remotePeerId, pending)
           }
         } else if (envelope.kind === 'ack') {
           setMessages((current) =>
-            current.map((message) =>
-              message.id === envelope.id && message.status === 'sent'
-                ? { ...message, status: 'delivered' }
-                : message,
-            ),
+            current.map((message) => {
+              if (
+                message.id !== envelope.id ||
+                message.direction !== 'outgoing' ||
+                !(remotePeerId in message.receipts)
+              ) {
+                return message
+              }
+              const receipts = { ...message.receipts, [remotePeerId]: 'delivered' as const }
+              const status = Object.values(receipts).every((value) => value !== 'sent')
+                ? 'delivered'
+                : 'sent'
+              return { ...message, receipts, status }
+            }),
           )
         } else if (envelope.kind === 'seen') {
           const seenIds = new Set(envelope.ids)
           setMessages((current) =>
-            current.map((message) =>
-              message.direction === 'outgoing' && seenIds.has(message.id)
-                ? { ...message, status: 'seen' }
-                : message,
-            ),
+            current.map((message) => {
+              if (
+                message.direction !== 'outgoing' ||
+                !seenIds.has(message.id) ||
+                !(remotePeerId in message.receipts)
+              ) {
+                return message
+              }
+              const receipts = { ...message.receipts, [remotePeerId]: 'seen' as const }
+              const values = Object.values(receipts)
+              const status = values.every((value) => value === 'seen')
+                ? 'seen'
+                : values.every((value) => value !== 'sent')
+                  ? 'delivered'
+                  : 'sent'
+              return { ...message, receipts, status }
+            }),
           )
         } else if (envelope.kind === 'profile') {
-          setPeerName(envelope.name.trim())
+          const link = linksRef.current.get(remotePeerId)
+          if (link) {
+            link.name = envelope.name.trim()
+            syncPeers()
+          }
         } else if (envelope.kind === 'reaction') {
           setMessages((current) =>
             current.map((message) =>
               message.id === envelope.messageId
                 ? {
                     ...message,
-                    reactions: { ...message.reactions, peer: envelope.emoji },
+                    reactions: { ...message.reactions, [remotePeerId]: envelope.emoji },
                   }
                 : message,
             ),
@@ -327,7 +413,7 @@ export function usePeerSession() {
         } else if (envelope.kind === 'message_edit') {
           setMessages((current) => {
             const original = current.find((message) => message.id === envelope.messageId)
-            if (!original || original.direction !== 'incoming' || original.deletedAt) return current
+            if (!original || original.authorId !== remotePeerId || original.deletedAt) return current
             return current.map((message) => {
               if (
                 message.id === envelope.messageId &&
@@ -348,7 +434,7 @@ export function usePeerSession() {
         } else if (envelope.kind === 'message_delete') {
           setMessages((current) => {
             const original = current.find((message) => message.id === envelope.messageId)
-            if (!original || original.direction !== 'incoming') return current
+            if (!original || original.authorId !== remotePeerId) return current
             return current.map((message) => {
               if (message.id === envelope.messageId) {
                 return {
@@ -368,13 +454,17 @@ export function usePeerSession() {
             })
           })
         } else {
-          setPeerTyping(envelope.active)
+          const link = linksRef.current.get(remotePeerId)
+          if (link) {
+            link.typing = envelope.active
+            syncPeers()
+          }
         }
       } catch {
         // Ignore malformed peer payloads without disrupting the channel.
       }
     },
-    [sendSeen],
+    [sendSeen, syncPeers],
   )
 
   const handleFileMessage = useCallback(
@@ -450,67 +540,100 @@ export function usePeerSession() {
   )
 
   const attachChannel = useCallback(
-    (channel: RTCDataChannel) => {
+    (remotePeerId: string, channel: RTCDataChannel) => {
+      const link = linksRef.current.get(remotePeerId)
+      if (!link) {
+        channel.close()
+        return
+      }
       if (channel.label === 'chat') {
-        chatChannelRef.current = channel
-        channel.addEventListener('message', handleChatMessage)
+        link.chatChannel = channel
+        channel.addEventListener('message', (event) => handleChatMessage(remotePeerId, event))
         channel.addEventListener('open', () => {
+          link.phase = 'connected'
           changePhase('connected')
           setError('')
           const name = displayNameRef.current.trim()
           if (name) {
             channel.send(JSON.stringify({ kind: 'profile', name } satisfies PeerEnvelope))
           }
+          syncPeers()
           addEvent('Direct channel open', 'Messages now travel browser to browser.', 'success')
         })
         channel.addEventListener('close', () => {
-          if (chatChannelRef.current === channel && phaseRef.current !== 'idle') {
+          if (link.chatChannel === channel && phaseRef.current !== 'idle') {
+            link.phase = 'disconnected'
+            syncPeers()
+          }
+          const hasOpenChannel = [...linksRef.current.values()].some(
+            (candidate) => candidate.chatChannel?.readyState === 'open',
+          )
+          if (!hasOpenChannel && phaseRef.current !== 'idle') {
             changePhase('disconnected')
           }
         })
       } else if (channel.label === 'files') {
-        fileChannelRef.current = channel
+        link.fileChannel = channel
         channel.binaryType = 'arraybuffer'
         channel.addEventListener('message', handleFileMessage)
       }
     },
-    [addEvent, changePhase, handleChatMessage, handleFileMessage],
+    [addEvent, changePhase, handleChatMessage, handleFileMessage, syncPeers],
   )
 
+  const closeLink = useCallback((remotePeerId: string) => {
+    const link = linksRef.current.get(remotePeerId)
+    if (!link) return
+    if (link.qualityTimer !== null) window.clearInterval(link.qualityTimer)
+    link.chatChannel?.close()
+    link.fileChannel?.close()
+    link.connection.close()
+    linksRef.current.delete(remotePeerId)
+    pendingSeenRef.current.delete(remotePeerId)
+    syncPeers()
+  }, [syncPeers])
+
   const closePeer = useCallback(() => {
-    const chatChannel = chatChannelRef.current
-    const fileChannel = fileChannelRef.current
-    const peer = peerRef.current
-    chatChannelRef.current = null
-    fileChannelRef.current = null
-    peerRef.current = null
-    if (qualityTimerRef.current !== null) window.clearInterval(qualityTimerRef.current)
-    qualityTimerRef.current = null
-    chatChannel?.close()
-    fileChannel?.close()
-    peer?.close()
-    turnConfiguredRef.current = false
-    setRoute(null)
-    setQuality(null)
-    queuedCandidatesRef.current = []
-    localCandidatesRef.current = []
-    remoteCandidatesRef.current = []
+    for (const link of linksRef.current.values()) {
+      if (link.qualityTimer !== null) window.clearInterval(link.qualityTimer)
+      link.chatChannel?.close()
+      link.fileChannel?.close()
+      link.connection.close()
+    }
+    linksRef.current.clear()
     incomingFileRef.current = null
     pendingSeenRef.current.clear()
-    setPeerTyping(false)
-    setPeerName('')
-  }, [])
+    syncPeers()
+  }, [syncPeers])
 
   const ensurePeer = useCallback(
-    async (initiator: boolean) => {
-      if (peerRef.current) return peerRef.current
+    async (remotePeerId: string, initiator: boolean) => {
+      const existing = linksRef.current.get(remotePeerId)
+      if (existing) return existing.connection
       const { connection: peer, turnConfigured } = await createPeerConnection()
-      if (peerRef.current) {
+      const racedLink = linksRef.current.get(remotePeerId)
+      if (racedLink) {
         peer.close()
-        return peerRef.current
+        return racedLink.connection
       }
-      peerRef.current = peer
-      turnConfiguredRef.current = turnConfigured
+      const link: PeerLink = {
+        peerId: remotePeerId,
+        name: '',
+        phase: 'connecting',
+        route: null,
+        quality: null,
+        typing: false,
+        connection: peer,
+        chatChannel: null,
+        fileChannel: null,
+        queuedCandidates: [],
+        localCandidates: [],
+        remoteCandidates: [],
+        turnConfigured,
+        qualityTimer: null,
+      }
+      linksRef.current.set(remotePeerId, link)
+      syncPeers()
       addEvent(
         'Peer connection created',
         turnConfigured
@@ -524,70 +647,95 @@ export function usePeerSession() {
           addEvent('ICE gathering complete', 'All available network routes were checked.')
           return
         }
-        localCandidatesRef.current.push(event.candidate.candidate)
+        link.localCandidates.push(event.candidate.candidate)
         signalRef.current?.send({
           type: 'ice_candidate',
+          targetPeerId: remotePeerId,
           candidate: toCandidatePayload(event.candidate),
         })
       })
       peer.addEventListener('connectionstatechange', () => {
         if (peer.connectionState === 'connected') {
+          link.phase = 'connected'
           changePhase('connected')
           void detectConnectionRoute(peer).then((detectedRoute) => {
-            if (peerRef.current !== peer) return
-            setRoute(detectedRoute)
+            if (linksRef.current.get(remotePeerId)?.connection !== peer) return
+            link.route = detectedRoute
+            syncPeers()
             addEvent('Route selected', detectedRoute.detail, 'success')
           })
           const updateQuality = () => {
             void measureConnectionQuality(peer).then((measuredQuality) => {
-              if (peerRef.current === peer) setQuality(measuredQuality)
+              if (linksRef.current.get(remotePeerId)?.connection !== peer) return
+              link.quality = measuredQuality
+              syncPeers()
             })
           }
-          if (qualityTimerRef.current !== null) {
-            window.clearInterval(qualityTimerRef.current)
+          if (link.qualityTimer !== null) {
+            window.clearInterval(link.qualityTimer)
           }
           updateQuality()
-          qualityTimerRef.current = window.setInterval(updateQuality, 3_000)
+          link.qualityTimer = window.setInterval(updateQuality, 3_000)
         } else if (peer.connectionState === 'disconnected') {
-          changePhase('reconnecting')
+          link.phase = 'disconnected'
+          syncPeers()
+          const anotherConnected = [...linksRef.current.values()].some(
+            (candidate) => candidate !== link && candidate.phase === 'connected',
+          )
+          changePhase(anotherConnected ? 'connected' : 'reconnecting')
           addEvent('Route interrupted', 'The browser is attempting to recover the connection.', 'danger')
         } else if (peer.connectionState === 'failed') {
           const diagnosis = diagnoseIceFailure({
-            localCandidates: localCandidatesRef.current,
-            remoteCandidates: remoteCandidatesRef.current,
-            turnConfigured: turnConfiguredRef.current,
+            localCandidates: link.localCandidates,
+            remoteCandidates: link.remoteCandidates,
+            turnConfigured: link.turnConfigured,
           })
-          changePhase('disconnected')
-          setError(diagnosis.title)
-          setFailureHelp(diagnosis.detail)
+          link.phase = 'failed'
+          syncPeers()
+          const anyConnected = [...linksRef.current.values()].some(
+            (candidate) => candidate.phase === 'connected',
+          )
+          changePhase(anyConnected ? 'connected' : 'disconnected')
+          if (!anyConnected) {
+            setError(diagnosis.title)
+            setFailureHelp(diagnosis.detail)
+          }
           addEvent(diagnosis.title, diagnosis.detail, 'danger')
         }
       })
-      peer.addEventListener('datachannel', (event) => attachChannel(event.channel))
+      peer.addEventListener('datachannel', (event) => attachChannel(remotePeerId, event.channel))
 
       if (initiator) {
-        attachChannel(peer.createDataChannel('chat', { ordered: true }))
-        attachChannel(peer.createDataChannel('files', { ordered: true }))
+        attachChannel(remotePeerId, peer.createDataChannel('chat', { ordered: true }))
+        if (roomType === 'private') {
+          attachChannel(remotePeerId, peer.createDataChannel('files', { ordered: true }))
+        }
       }
       return peer
     },
-    [addEvent, attachChannel, changePhase],
+    [addEvent, attachChannel, changePhase, roomType, syncPeers],
   )
 
-  const flushCandidates = useCallback(async (peer: RTCPeerConnection) => {
-    const candidates = queuedCandidatesRef.current
-    queuedCandidatesRef.current = []
+  const flushCandidates = useCallback(async (remotePeerId: string, peer: RTCPeerConnection) => {
+    const link = linksRef.current.get(remotePeerId)
+    if (!link) return
+    const candidates = link.queuedCandidates
+    link.queuedCandidates = []
     for (const candidate of candidates) await peer.addIceCandidate(candidate)
   }, [])
 
-  const createOffer = useCallback(async () => {
+  const createOffer = useCallback(async (remotePeerId: string) => {
     try {
-      changePhase('connecting')
+      const alreadyConnected = [...linksRef.current.values()].some(
+        (link) => link.phase === 'connected',
+      )
+      if (!alreadyConnected) changePhase('connecting')
       addEvent('Peer found', 'Creating an offer for the direct connection.', 'active')
-      const peer = await ensurePeer(true)
+      const peer = await ensurePeer(remotePeerId, true)
       await peer.setLocalDescription(await peer.createOffer())
       signalRef.current?.send({
         type: 'offer',
+        targetPeerId: remotePeerId,
         description: toDescriptionPayload(peer.localDescription),
       })
       addEvent('Offer sent', 'Connection details went through signaling only.')
@@ -601,12 +749,14 @@ export function usePeerSession() {
     async (message: ServerSignal) => {
       if (message.type === 'room_created' || message.type === 'room_joined') {
         setRoomCode(message.roomCode)
+        setRoomType(message.roomType)
         setPeerId(message.peerId)
+        localPeerIdRef.current = message.peerId
         rememberRoom(message.roomCode, message.resumeToken)
         pendingRoomCodeRef.current = message.roomCode
         resumeAttemptedRef.current = false
         setError('')
-        changePhase(message.type === 'room_created' ? 'waiting' : 'connecting')
+        changePhase(message.peers.length === 0 ? 'waiting' : 'connecting')
         addEvent(
           message.type === 'room_created' ? 'Room ready' : 'Room joined',
           message.type === 'room_created'
@@ -617,20 +767,28 @@ export function usePeerSession() {
         return
       }
       if (message.type === 'peer_joined') {
-        closePeer()
-        await createOffer()
+        await createOffer(message.peer.peerId)
+        return
+      }
+      if (message.type === 'peer_rejoined') {
+        closeLink(message.peerId)
+        await createOffer(message.peerId)
         return
       }
       if (message.type === 'offer') {
         try {
-          changePhase('connecting')
+          const alreadyConnected = [...linksRef.current.values()].some(
+            (link) => link.phase === 'connected',
+          )
+          if (!alreadyConnected) changePhase('connecting')
           addEvent('Offer received', 'Preparing the response in this browser.', 'active')
-          const peer = await ensurePeer(false)
+          const peer = await ensurePeer(message.fromPeerId, false)
           await peer.setRemoteDescription(message.description)
-          await flushCandidates(peer)
+          await flushCandidates(message.fromPeerId, peer)
           await peer.setLocalDescription(await peer.createAnswer())
           signalRef.current?.send({
             type: 'answer',
+            targetPeerId: message.fromPeerId,
             description: toDescriptionPayload(peer.localDescription),
           })
           addEvent('Answer sent', 'The peer can now complete negotiation.')
@@ -642,10 +800,10 @@ export function usePeerSession() {
       }
       if (message.type === 'answer') {
         try {
-          const peer = peerRef.current
+          const peer = linksRef.current.get(message.fromPeerId)?.connection
           if (!peer) return
           await peer.setRemoteDescription(message.description)
-          await flushCandidates(peer)
+          await flushCandidates(message.fromPeerId, peer)
           addEvent('Answer received', 'Negotiation is complete; opening the data channel.', 'active')
         } catch {
           changePhase('failed')
@@ -654,16 +812,25 @@ export function usePeerSession() {
         return
       }
       if (message.type === 'ice_candidate') {
-        remoteCandidatesRef.current.push(message.candidate.candidate)
-        const peer = peerRef.current
-        if (!peer?.remoteDescription) queuedCandidatesRef.current.push(message.candidate)
+        const peer = await ensurePeer(message.fromPeerId, false)
+        const link = linksRef.current.get(message.fromPeerId)
+        if (!link) return
+        link.remoteCandidates.push(message.candidate.candidate)
+        if (!peer.remoteDescription) link.queuedCandidates.push(message.candidate)
         else await peer.addIceCandidate(message.candidate)
         return
       }
       if (message.type === 'peer_left') {
-        closePeer()
-        changePhase('disconnected')
-        setError('The other person left. This room is still available for them to rejoin.')
+        closeLink(message.peerId)
+        const hasConnectedPeer = [...linksRef.current.values()].some(
+          (link) => link.phase === 'connected',
+        )
+        changePhase(hasConnectedPeer ? 'connected' : 'waiting')
+        setError(
+          hasConnectedPeer
+            ? ''
+            : 'The other person left. This room is still available for them to rejoin.',
+        )
         addEvent('Peer left', 'The direct connection was closed.', 'danger')
         return
       }
@@ -692,7 +859,7 @@ export function usePeerSession() {
         setError(message.message)
         if (message.code === 'room_full') {
           setFailureHelp(
-            'The server still sees two browser sessions. Reopen the same invitation in the original browser to reclaim its place, or wait up to 30 seconds for an abandoned mobile session to expire.',
+            'The room is at capacity. Reopen the invitation in the original browser to reclaim its place, or wait for an abandoned mobile session to expire.',
           )
         }
         if (message.code === 'room_not_found' && roomCode) forgetRoom(roomCode)
@@ -702,7 +869,15 @@ export function usePeerSession() {
         addEvent('Signaling error', message.message, 'danger')
       }
     },
-    [addEvent, changePhase, closePeer, createOffer, ensurePeer, flushCandidates, roomCode],
+    [
+      addEvent,
+      changePhase,
+      closeLink,
+      createOffer,
+      ensurePeer,
+      flushCandidates,
+      roomCode,
+    ],
   )
 
   useEffect(() => {
@@ -714,9 +889,11 @@ export function usePeerSession() {
   useEffect(() => {
     const flushSeen = () => {
       if (document.visibilityState !== 'visible' || !document.hasFocus()) return
-      const ids = [...pendingSeenRef.current]
-      for (let index = 0; index < ids.length; index += 100) {
-        sendSeen(ids.slice(index, index + 100))
+      for (const [remotePeerId, pending] of pendingSeenRef.current) {
+        const ids = [...pending]
+        for (let index = 0; index < ids.length; index += 100) {
+          sendSeen(remotePeerId, ids.slice(index, index + 100))
+        }
       }
     }
     document.addEventListener('visibilitychange', flushSeen)
@@ -735,7 +912,10 @@ export function usePeerSession() {
       onMessage: (message) => signalHandlerRef.current(message),
       onClose: () => {
         if (intentionalCloseRef.current) return
-        if (chatChannelRef.current?.readyState === 'open') {
+        const hasOpenChannel = [...linksRef.current.values()].some(
+          (link) => link.chatChannel?.readyState === 'open',
+        )
+        if (hasOpenChannel) {
           addEvent('Signaling offline', 'The direct data channel is still active.', 'danger')
           return
         }
@@ -760,15 +940,16 @@ export function usePeerSession() {
     setFailureHelp('')
   }, [])
 
-  const createRoom = useCallback(async () => {
+  const createRoom = useCallback(async (type: RoomType = 'private') => {
     resetContent()
     closePeer()
     pendingRoomCodeRef.current = ''
     resumeAttemptedRef.current = false
+    setRoomType(type)
     changePhase('signaling')
     try {
       const signal = await openSignal()
-      signal.send({ type: 'create_room' })
+      signal.send({ type: 'create_room', roomType: type })
     } catch {
       changePhase('failed')
     }
@@ -810,7 +991,9 @@ export function usePeerSession() {
     pendingRoomCodeRef.current = ''
     resumeAttemptedRef.current = false
     setRoomCode('')
+    setRoomType('private')
     setPeerId('')
+    localPeerIdRef.current = ''
     setError('')
     setFailureHelp('')
     changePhase('idle')
@@ -845,8 +1028,7 @@ export function usePeerSession() {
 
   const sendMessage = useCallback((rawText: string, replyTo?: ReplyReference) => {
     const text = rawText.trim()
-    const channel = chatChannelRef.current
-    if (!text || text.length > MAX_MESSAGE_LENGTH || channel?.readyState !== 'open') return false
+    if (!text || text.length > MAX_MESSAGE_LENGTH) return false
     const envelope: Extract<PeerEnvelope, { kind: 'chat' }> = {
       kind: 'chat',
       id: crypto.randomUUID(),
@@ -854,48 +1036,58 @@ export function usePeerSession() {
       sentAt: new Date().toISOString(),
       ...(replyTo ? { replyTo } : {}),
     }
-    channel.send(JSON.stringify(envelope))
+    const recipients = broadcastChat(envelope)
+    if (recipients.length === 0) return false
     setMessages((current) => [
       ...current,
       {
         id: envelope.id,
         text: envelope.text,
         sentAt: envelope.sentAt,
+        authorId: localPeerIdRef.current,
+        authorName: displayNameRef.current.trim() || 'You',
         direction: 'outgoing',
         status: 'sent',
+        receipts: Object.fromEntries(recipients.map((id) => [id, 'sent' as const])),
         replyTo: envelope.replyTo,
         reactions: {},
       },
     ])
     return true
-  }, [])
+  }, [broadcastChat])
 
   const reactToMessage = useCallback((messageId: string, emoji: EmojiReaction) => {
-    const channel = chatChannelRef.current
-    if (channel?.readyState !== 'open') return
-    channel.send(JSON.stringify({ kind: 'reaction', messageId, emoji } satisfies PeerEnvelope))
+    if (
+      broadcastChat({ kind: 'reaction', messageId, emoji } satisfies PeerEnvelope).length === 0
+    ) {
+      return
+    }
     setMessages((current) =>
       current.map((message) =>
         message.id === messageId
-          ? { ...message, reactions: { ...message.reactions, local: emoji } }
+          ? {
+              ...message,
+              reactions: { ...message.reactions, [localPeerIdRef.current]: emoji },
+            }
           : message,
       ),
     )
-  }, [])
+  }, [broadcastChat])
 
   const editMessage = useCallback((messageId: string, rawText: string) => {
     const text = rawText.trim()
-    const channel = chatChannelRef.current
-    if (!text || text.length > MAX_MESSAGE_LENGTH || channel?.readyState !== 'open') return false
+    if (!text || text.length > MAX_MESSAGE_LENGTH) return false
     const editedAt = new Date().toISOString()
-    channel.send(
-      JSON.stringify({
+    if (
+      broadcastChat({
         kind: 'message_edit',
         messageId,
         text,
         editedAt,
-      } satisfies PeerEnvelope),
-    )
+      } satisfies PeerEnvelope).length === 0
+    ) {
+      return false
+    }
     setMessages((current) =>
       current.map((message) => {
         if (
@@ -912,19 +1104,19 @@ export function usePeerSession() {
       }),
     )
     return true
-  }, [])
+  }, [broadcastChat])
 
   const deleteMessage = useCallback((messageId: string) => {
-    const channel = chatChannelRef.current
-    if (channel?.readyState !== 'open') return false
     const deletedAt = new Date().toISOString()
-    channel.send(
-      JSON.stringify({
+    if (
+      broadcastChat({
         kind: 'message_delete',
         messageId,
         deletedAt,
-      } satisfies PeerEnvelope),
-    )
+      } satisfies PeerEnvelope).length === 0
+    ) {
+      return false
+    }
     setMessages((current) =>
       current.map((message) => {
         if (message.id === messageId && message.direction === 'outgoing') {
@@ -940,14 +1132,11 @@ export function usePeerSession() {
       }),
     )
     return true
-  }, [])
+  }, [broadcastChat])
 
   const sendTyping = useCallback((active: boolean) => {
-    const channel = chatChannelRef.current
-    if (channel?.readyState === 'open') {
-      channel.send(JSON.stringify({ kind: 'typing', active } satisfies PeerEnvelope))
-    }
-  }, [])
+    broadcastChat({ kind: 'typing', active } satisfies PeerEnvelope)
+  }, [broadcastChat])
 
   const setDisplayName = useCallback((value: string) => {
     const name = value.slice(0, 24)
@@ -959,11 +1148,10 @@ export function usePeerSession() {
       // The name still works for the current page when storage is unavailable.
     }
     const trimmed = name.trim()
-    const channel = chatChannelRef.current
-    if (trimmed.length >= 2 && channel?.readyState === 'open') {
-      channel.send(JSON.stringify({ kind: 'profile', name: trimmed } satisfies PeerEnvelope))
+    if (trimmed.length >= 2) {
+      broadcastChat({ kind: 'profile', name: trimmed } satisfies PeerEnvelope)
     }
-  }, [])
+  }, [broadcastChat])
 
   const sendTransfer = useCallback(
     async ({
@@ -979,7 +1167,10 @@ export function usePeerSession() {
       durationMs?: number
       waveform?: number[]
     }) => {
-      const channel = fileChannelRef.current
+      if (roomType !== 'private') {
+        throw new Error('Group rooms currently support text messages only.')
+      }
+      const channel = [...linksRef.current.values()][0]?.fileChannel
       if (channel?.readyState !== 'open') throw new Error('The file channel is not connected.')
       if (blob.size > MAX_FILE_SIZE) throw new Error('Choose a file smaller than 25 MB.')
 
@@ -1059,7 +1250,7 @@ export function usePeerSession() {
         throw new Error('The file transfer was interrupted.')
       }
     },
-    [addEvent, updateTransfer],
+    [addEvent, roomType, updateTransfer],
   )
 
   const sendFile = useCallback(
@@ -1111,7 +1302,9 @@ export function usePeerSession() {
   return {
     phase,
     roomCode,
+    roomType,
     peerId,
+    peers,
     messages,
     transfers,
     events,

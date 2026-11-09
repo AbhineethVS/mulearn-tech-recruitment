@@ -102,6 +102,14 @@ export function createPeerServer() {
   app.use(express.static(distPath))
   app.use((_request, response) => response.sendFile(resolve(distPath, 'index.html')))
 
+  const leaveRoom = (socket: LiveSocket) => {
+    const result = rooms.leave(socket)
+    if (!result) return
+    for (const peer of result.remainingPeers) {
+      send(peer, { type: 'peer_left', peerId: result.membership.peerId })
+    }
+  }
+
   sockets.on('connection', (rawSocket) => {
     const socket = rawSocket as LiveSocket
     socket.isAlive = true
@@ -123,12 +131,17 @@ export function createPeerServer() {
       }
 
       if (message.type === 'create_room') {
-        const result = rooms.create(socket)
+        const result = rooms.create(socket, message.roomType)
         if (!result.ok) {
           sendError(socket, result.code, result.message)
           return
         }
-        send(socket, { type: 'room_created', ...result.membership })
+        send(socket, {
+          type: 'room_created',
+          ...result.membership,
+          roomType: result.roomType,
+          peers: result.peers,
+        })
         return
       }
 
@@ -139,39 +152,57 @@ export function createPeerServer() {
           return
         }
         result.replacedPeer?.terminate()
-        send(socket, { type: 'room_joined', ...result.membership })
-        const otherPeer = rooms.getOtherPeer(socket)
-        if (otherPeer) send(otherPeer, { type: 'peer_joined' })
+        send(socket, {
+          type: 'room_joined',
+          ...result.membership,
+          roomType: result.roomType,
+          peers: result.peers,
+        })
+        for (const peer of rooms.getPeers(socket)) {
+          send(
+            peer,
+            result.replacedPeer
+              ? { type: 'peer_rejoined', peerId: result.membership.peerId }
+              : { type: 'peer_joined', peer: { peerId: result.membership.peerId } },
+          )
+        }
         return
       }
 
       if (message.type === 'leave') {
-        const otherPeer = rooms.leave(socket)
-        if (otherPeer) send(otherPeer, { type: 'peer_left' })
+        leaveRoom(socket)
         return
       }
 
-      if (!rooms.getMembership(socket)) {
+      const membership = rooms.getMembership(socket)
+      if (!membership) {
         sendError(socket, 'not_in_room', 'Create or join a room before signaling.')
         return
       }
 
-      const otherPeer = rooms.getOtherPeer(socket)
-      if (!otherPeer) {
-        sendError(socket, 'peer_unavailable', 'The other person has not joined yet.')
+      const targetPeer = rooms.getPeerById(socket, message.targetPeerId)
+      if (!targetPeer) {
+        sendError(socket, 'peer_unavailable', 'That peer is no longer available.')
         return
       }
 
       if (message.type === 'offer' || message.type === 'answer') {
-        send(otherPeer, message)
+        send(targetPeer, {
+          type: message.type,
+          fromPeerId: membership.peerId,
+          description: message.description,
+        })
       } else {
-        send(otherPeer, message)
+        send(targetPeer, {
+          type: 'ice_candidate',
+          fromPeerId: membership.peerId,
+          candidate: message.candidate,
+        })
       }
     })
 
     socket.on('close', () => {
-      const otherPeer = rooms.leave(socket)
-      if (otherPeer) send(otherPeer, { type: 'peer_left' })
+      leaveRoom(socket)
     })
   })
 

@@ -1,5 +1,10 @@
 export const ROOM_CODE_PATTERN = /^[A-HJ-NP-Z2-9]{8}$/
 export const MAX_SIGNAL_BYTES = 64 * 1024
+export type RoomType = 'private' | 'group'
+
+export type RoomPeer = {
+  peerId: string
+}
 
 export type SessionDescriptionPayload = {
   type: 'offer' | 'answer'
@@ -14,11 +19,11 @@ export type IceCandidatePayload = {
 }
 
 export type ClientSignal =
-  | { type: 'create_room' }
+  | { type: 'create_room'; roomType: RoomType }
   | { type: 'join_room'; roomCode: string; resumeToken?: string }
-  | { type: 'offer'; description: SessionDescriptionPayload }
-  | { type: 'answer'; description: SessionDescriptionPayload }
-  | { type: 'ice_candidate'; candidate: IceCandidatePayload }
+  | { type: 'offer'; targetPeerId: string; description: SessionDescriptionPayload }
+  | { type: 'answer'; targetPeerId: string; description: SessionDescriptionPayload }
+  | { type: 'ice_candidate'; targetPeerId: string; candidate: IceCandidatePayload }
   | { type: 'leave' }
 
 export type SignalErrorCode =
@@ -31,13 +36,20 @@ export type SignalErrorCode =
   | 'peer_unavailable'
 
 export type ServerSignal =
-  | { type: 'room_created'; roomCode: string; peerId: string; resumeToken: string }
-  | { type: 'room_joined'; roomCode: string; peerId: string; resumeToken: string }
-  | { type: 'peer_joined' }
-  | { type: 'offer'; description: SessionDescriptionPayload }
-  | { type: 'answer'; description: SessionDescriptionPayload }
-  | { type: 'ice_candidate'; candidate: IceCandidatePayload }
-  | { type: 'peer_left' }
+  | {
+      type: 'room_created' | 'room_joined'
+      roomCode: string
+      roomType: RoomType
+      peerId: string
+      resumeToken: string
+      peers: RoomPeer[]
+    }
+  | { type: 'peer_joined'; peer: RoomPeer }
+  | { type: 'peer_rejoined'; peerId: string }
+  | { type: 'offer'; fromPeerId: string; description: SessionDescriptionPayload }
+  | { type: 'answer'; fromPeerId: string; description: SessionDescriptionPayload }
+  | { type: 'ice_candidate'; fromPeerId: string; candidate: IceCandidatePayload }
+  | { type: 'peer_left'; peerId: string }
   | { type: 'error'; code: SignalErrorCode; message: string; recoverable: boolean }
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
@@ -61,6 +73,15 @@ const isCandidate = (value: unknown): value is IceCandidatePayload =>
   (typeof value.sdpMLineIndex === 'number' || value.sdpMLineIndex === null) &&
   (typeof value.usernameFragment === 'string' || value.usernameFragment === null)
 
+const isPeerId = (value: unknown): value is string =>
+  typeof value === 'string' && value.length >= 8 && value.length <= 128
+
+const isRoomType = (value: unknown): value is RoomType =>
+  value === 'private' || value === 'group'
+
+const isRoomPeer = (value: unknown): value is RoomPeer =>
+  isRecord(value) && isPeerId(value.peerId)
+
 export function normalizeRoomCode(value: string) {
   return value.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 8)
 }
@@ -77,9 +98,12 @@ export function decodeClientSignal(value: unknown): ClientSignal | null {
   if (!isRecord(value) || typeof value.type !== 'string') return null
 
   switch (value.type) {
-    case 'create_room':
     case 'leave':
       return { type: value.type }
+    case 'create_room':
+      return isRoomType(value.roomType)
+        ? { type: 'create_room', roomType: value.roomType }
+        : null
     case 'join_room': {
       if (typeof value.roomCode !== 'string') return null
       const roomCode = normalizeRoomCode(value.roomCode)
@@ -99,12 +123,20 @@ export function decodeClientSignal(value: unknown): ClientSignal | null {
     }
     case 'offer':
     case 'answer':
-      return isDescription(value.description, value.type)
-        ? { type: value.type, description: value.description }
+      return isPeerId(value.targetPeerId) && isDescription(value.description, value.type)
+        ? {
+            type: value.type,
+            targetPeerId: value.targetPeerId,
+            description: value.description,
+          }
         : null
     case 'ice_candidate':
-      return isCandidate(value.candidate)
-        ? { type: 'ice_candidate', candidate: value.candidate }
+      return isPeerId(value.targetPeerId) && isCandidate(value.candidate)
+        ? {
+            type: 'ice_candidate',
+            targetPeerId: value.targetPeerId,
+            candidate: value.candidate,
+          }
         : null
     default:
       return null
@@ -119,28 +151,44 @@ export function decodeServerSignal(value: unknown): ServerSignal | null {
     case 'room_joined':
       return typeof value.roomCode === 'string' &&
         ROOM_CODE_PATTERN.test(value.roomCode) &&
-        typeof value.peerId === 'string' &&
+        isRoomType(value.roomType) &&
+        isPeerId(value.peerId) &&
         typeof value.resumeToken === 'string' &&
         value.resumeToken.length >= 32 &&
-        value.resumeToken.length <= 128
+        value.resumeToken.length <= 128 &&
+        Array.isArray(value.peers) &&
+        value.peers.length <= 3 &&
+        value.peers.every(isRoomPeer)
         ? {
             type: value.type,
             roomCode: value.roomCode,
+            roomType: value.roomType,
             peerId: value.peerId,
             resumeToken: value.resumeToken,
+            peers: value.peers,
           }
         : null
     case 'peer_joined':
+      return isRoomPeer(value.peer) ? { type: 'peer_joined', peer: value.peer } : null
+    case 'peer_rejoined':
     case 'peer_left':
-      return { type: value.type }
+      return isPeerId(value.peerId) ? { type: value.type, peerId: value.peerId } : null
     case 'offer':
     case 'answer':
-      return isDescription(value.description, value.type)
-        ? { type: value.type, description: value.description }
+      return isPeerId(value.fromPeerId) && isDescription(value.description, value.type)
+        ? {
+            type: value.type,
+            fromPeerId: value.fromPeerId,
+            description: value.description,
+          }
         : null
     case 'ice_candidate':
-      return isCandidate(value.candidate)
-        ? { type: 'ice_candidate', candidate: value.candidate }
+      return isPeerId(value.fromPeerId) && isCandidate(value.candidate)
+        ? {
+            type: 'ice_candidate',
+            fromPeerId: value.fromPeerId,
+            candidate: value.candidate,
+          }
         : null
     case 'error':
       return typeof value.code === 'string' &&

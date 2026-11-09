@@ -8,26 +8,28 @@ P4Pair is one TypeScript project with two runtimes:
 2. The Node server serves the production build and accepts signaling WebSockets at `/signal`.
 
 There is no account system, database, or server-side message history. Rooms exist only in the
-signaling process memory and are deleted after both sockets leave.
+signaling process memory and are deleted after their last socket leaves.
 
 ## Connection flow
 
 1. The first browser opens a WebSocket and asks the server to create a room.
-2. The second browser joins with the eight-character code.
-3. The server tells the existing browser that a peer arrived.
-4. That browser creates an `RTCPeerConnection`, two data channels, and an SDP offer.
-5. The server forwards the offer, answer, and trickled ICE candidates between the paired sockets.
-6. After WebRTC connects, chat and file payloads travel over the data channels. The signaling server
-   cannot read or store those payloads.
+2. Other browsers join with the eight-character code.
+3. The server sends the existing members the new peer ID.
+4. Each existing member creates one `RTCPeerConnection` and addressed SDP offer for the newcomer.
+5. The server validates and routes offers, answers, and trickled ICE candidates only to the named
+   member of the same room.
+6. After WebRTC connects, content travels over pairwise data channels. The signaling server cannot
+   read or store those payloads.
 
-The server-designated existing peer always offers, avoiding offer collision. Candidates received
-before `setRemoteDescription` are queued and applied afterward.
+Existing peers always offer to the newcomer, avoiding offer collision. A private room has one link;
+a four-person group forms a full mesh of six links. Candidates received before
+`setRemoteDescription` are queued independently for each remote peer and applied afterward.
 
 Each room membership receives a random resume token stored in that tab's session storage. The
 token survives a reload without leaking into a second same-browser tab. If a mobile browser
 reloads or resumes before its old WebSocket has timed out, presenting the token atomically replaces
 the stale socket instead of producing a false `room_full` error. A browser without the token still
-cannot enter a two-person room. Heartbeats remove abandoned sockets within about 30 seconds.
+cannot claim that membership. Heartbeats remove abandoned sockets within about 30 seconds.
 The latest token is also retained as a device-local fallback: a newly opened tab attempts a normal
 join first and presents that fallback only after the full room rejects it. This preserves ordinary
 two-tab testing while allowing a restarted mobile browser to reclaim its own stale membership.
@@ -35,7 +37,8 @@ two-tab testing while allowing a restarted mobile browser to reclaim its own sta
 ## Code boundaries
 
 - `shared/protocol.ts` defines and validates the signaling protocol used by both runtimes.
-- `server/room-manager.ts` owns two-peer room membership without knowing about SDP.
+- `server/room-manager.ts` owns two-peer private and four-peer group membership without knowing
+  about SDP.
 - `server/index.ts` owns HTTP, WebSocket origin checks, heartbeat cleanup, and signal forwarding.
 - `src/lib/signaling.ts` wraps the browser WebSocket.
 - `src/lib/peer-connection.ts` owns ICE configuration and browser WebRTC utilities.
@@ -46,14 +49,15 @@ two-tab testing while allowing a restarted mobile browser to reclaim its own sta
 ## Data channels
 
 `chat` is a reliable ordered channel carrying JSON envelopes for text, quoted replies, emoji
-reactions, peer display names, delivery acknowledgements, seen receipts, and typing state. Display
-names and message interactions therefore remain peer content and are not stored by signaling. One
-tick means the local browser wrote the message to the open data channel, two ticks mean the peer
-acknowledged it, and blue ticks mean the peer displayed the conversation in a visible, focused
-page.
+reactions, edits, deletion tombstones, peer display names, delivery acknowledgements, seen
+receipts, and typing state. Group messages fan out over every open pairwise channel. Display names
+and message interactions therefore remain peer content and are not stored by signaling. One tick
+means the local browser wrote the message to all intended channels, two ticks mean every intended
+peer acknowledged it, and blue ticks mean every intended peer displayed the conversation in a
+visible, focused page. The receipt tooltip exposes partial group progress.
 
-`files` is a separate reliable ordered channel so binary buffering does not share the chat
-protocol. Files are capped at 25 MB, split into 16 KiB binary chunks, and paused when the channel
+Private rooms also create `files`, a separate reliable ordered channel so binary buffering does not
+share the chat protocol. Files are capped at 25 MB, split into 16 KiB binary chunks, and paused when the channel
 buffer crosses its threshold. Voice messages use this same bounded transfer path with typed voice
 metadata, a browser-selected audio codec, a two-minute recording limit, and waveform samples for
 the interface. Audio bytes never enter signaling or the service-worker cache.
@@ -73,6 +77,9 @@ navigation is offline. Hashed scripts, styles, fonts, and images are cached as s
 cannot be replayed from a cache. The offline shell is informational: a new room still requires
 network access to signaling, and peer content remains outside the service worker cache.
 
+Invitation QR codes are rendered locally from the same room URL used by copy and native sharing.
+No external QR service receives the invitation.
+
 ## Network traversal
 
 The default ICE configuration uses public STUN servers. STUN lets many peers discover a usable
@@ -84,7 +91,10 @@ server and it does not receive plaintext chat messages.
 ## Security boundaries
 
 - WebSocket messages are validated and limited to 64 KiB.
-- Rooms contain at most two peers and use cryptographically random codes.
+- Private rooms contain at most two peers; text group rooms contain at most four. Both use
+  cryptographically random codes.
+- SDP and ICE messages are addressed to a peer ID; the server validates room membership and stamps
+  the trusted sender ID before relaying.
 - Resume tokens are random, room-scoped capabilities and are never sent to the other peer.
 - Production WebSocket upgrades require a matching configured or same-host origin.
 - React renders peer text as text, not HTML.

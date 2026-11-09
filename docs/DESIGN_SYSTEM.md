@@ -16,9 +16,11 @@ are not decoration.
 ## Composition
 
 The landing page places the explanation and live route illustration before the room controls. The
-conversation uses three horizontal layers: global room controls, a two-endpoint connection rail,
-and the message workspace. Desktop adds a narrow local diagnostics timeline; mobile removes it
-before reducing conversation width.
+conversation uses three horizontal layers: global room controls, a connection rail, and the
+message workspace. Private rooms retain the defining two-endpoint line. Group rooms replace it
+with a compact four-place participant instrument without imitating a social-media contact list.
+Desktop adds a narrow local diagnostics timeline; mobile removes it before reducing conversation
+width.
 
 The memorable element is the route itself. Do not add decorative gradients, floating shapes, or a
 collection of unrelated cards.
@@ -29,10 +31,12 @@ collection of unrelated cards.
 - Keyboard focus is visible on every interactive element
 - Connection changes use text, icon, and color together
 - Waiting, connecting, connected, disconnected, and failed states each explain the next action
-- Enter sends; Shift+Enter adds a line
+- On desktop Enter sends and Shift+Enter adds a line; touch keyboards keep Enter for new lines
 - Peer text wraps safely and is never rendered as HTML
 - Reduced motion disables the loading rotation and nonessential transitions
 - The interface has no horizontal overflow at 375 px
+- Invitation QR codes live in one structural dialog/bottom sheet with native Share and copy
+  fallback; the QR is functional content, not decoration
 
 ## Voice
 
