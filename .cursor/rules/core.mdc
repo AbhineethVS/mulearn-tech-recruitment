@@ -1,14 +1,15 @@
 ---
-description: Boardline product and engineering invariants
+description: Pairly product and engineering invariants
 alwaysApply: true
 ---
 
 # Core rules
 
-- Build for the MuLearn Task 04 brief; must-haves outrank bonus features.
-- Keep the demo path functional without cloud credentials.
-- Use strict TypeScript and explicit domain types for project, task, status, and priority.
-- Keep mutations optimistic but surface database failures with an actionable message.
+- Build for the MuLearn Task 01 brief; reliable two-peer chat outranks bonus features.
+- Use strict TypeScript and discriminated unions for signaling and peer messages.
+- Keep signaling separate from peer content: no chat text or file bytes on the server.
+- Model connection states explicitly and surface failures with a useful recovery action.
+- Keep local development usable without accounts, secrets, or a database.
 - Do not add dependencies when a small typed utility is sufficient.
 - Run `npm run check` after substantive changes.
-- Update README or architecture notes when setup or data flow changes.
+- Update README, protocol, or architecture notes when networking behavior changes.

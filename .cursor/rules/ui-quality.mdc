@@ -1,17 +1,17 @@
 ---
-description: Distinctive, accessible Boardline interface standards
+description: Distinctive, accessible Pairly interface standards
 globs: "src/**/*.{tsx,css}"
 alwaysApply: false
 ---
 
 # UI quality
 
-- Follow `docs/DESIGN_SYSTEM.md`; do not introduce a teal-led palette or decorative gradients.
-- Use Manrope for display and DM Sans for interface copy; preserve the compact workspace density.
+- Follow `docs/DESIGN_SYSTEM.md`; the visible connection rail is the defining visual device.
+- Use Familjen Grotesk for interface copy and DM Mono for room/network identifiers.
 - Use Lucide icons, never emoji or text glyphs as interface icons.
-- Borders communicate structure; avoid nesting every region in another rounded card.
-- Keep controls at least 40px tall and provide visible `:focus-visible` states.
-- Keep status meaning readable without color alone.
-- At narrow widths, prefer a focused horizontal Kanban board over unusably narrow columns.
+- Use square structural borders; avoid turning every region into a floating rounded card.
+- Keep controls at least 44px tall where space permits and provide visible `:focus-visible` states.
+- Pair every connection color with a text label and screen-reader status update.
+- At narrow widths, hide diagnostics before reducing the conversation's usable width.
 - Respect `prefers-reduced-motion`; interaction motion must explain a state change.
-- Use sentence case and specific actions: “Save task”, not “Submit”.
+- Use plain, accurate networking language: “Create a room”, “Copy invite”, and “Try again”.

@@ -1,75 +1,106 @@
-# Boardline
+# Pairly
 
-Boardline is a focused project-management app built for MuLearn CET Tech Team Recruitment Task 04.
-Users can register or log in, manage projects and tasks, drag work through a four-column Kanban
-board, and understand progress from a responsive dashboard.
-
-## Try the demo
-
-```text
-Email: demo@boardline.app
-Password: boardline2026
-```
-
-The login form is already filled in. Demo data persists in the current browser, so reviewers can
-create, edit, delete, filter, and move work without connecting a social account or waiting for
-email confirmation.
+Pairly is a two-person browser chat built for MuLearn CET Tech Team Recruitment Task 01. A small
+Node/WebSocket server introduces the browsers; text and files then travel directly between them
+over WebRTC data channels.
 
 ## Features
 
-- Email/password authentication through Supabase
-- Zero-setup local demo workspace
-- Project and task CRUD
-- To do, In progress, Review, and Completed Kanban columns
-- Persisted drag-and-drop status changes
-- Priority filtering and task search
-- Total, completed, pending, and overdue metrics
-- Accessible Recharts status visualization
-- Responsive sidebar, forms, dashboard, and horizontal mobile Kanban
-- Row-level security, indexed queries, and Realtime-ready tables
+- Ephemeral two-person rooms with shareable invitation links
+- Typed WebSocket signaling for SDP offers, answers, and ICE candidates
+- Real-time peer-to-peer text messages
+- Explicit waiting, connecting, connected, reconnecting, disconnected, and failed states
+- Delivery acknowledgements and typing state sent peer to peer
+- Direct files up to 25 MB with chunking, backpressure, progress, cancellation, and downloads
+- Local connection timeline that makes negotiation understandable during a demo
+- STUN-backed ICE discovery for common cross-network connections
+- Responsive, keyboard-accessible interface
+
+The signaling server does not receive chat text or file bytes. Messages are held only in the two
+open pages and disappear when the page closes.
 
 ## Stack
 
-React 19, TypeScript, Vite, Supabase, dnd-kit, Recharts, Lucide, and Vitest.
+- React 19, TypeScript, and Vite
+- Native browser WebRTC (`RTCPeerConnection` and `RTCDataChannel`)
+- Node.js, Express, and `ws`
+- Vitest for protocol, room, and signaling integration tests
 
 ## Run locally
 
 ```bash
 npm install
-cp .env.example .env.local
 npm run dev
 ```
 
-The demo works even if `.env.local` is omitted.
+Open `http://localhost:5173` in two browser tabs. Create a room in the first tab, enter its code in
+the second, and send a message after both pages show “Direct channel open.”
 
-To enable cloud accounts, set:
+`npm run dev` starts:
+
+- Vite at `http://localhost:5173`
+- The signaling server at `http://localhost:3001`
+- A Vite WebSocket proxy from `/signal` to the signaling server
+
+No account, database, OAuth provider, or secret is required.
+
+## Production
+
+```bash
+npm run build
+npm start
+```
+
+The Node process serves the production frontend, `GET /health`, and the WebSocket endpoint
+`/signal` on one origin. Set these variables when needed:
 
 ```env
-VITE_SUPABASE_URL=https://your-project.supabase.co
-VITE_SUPABASE_PUBLISHABLE_KEY=sb_publishable_your_key
+PORT=3001
+ALLOWED_ORIGIN=https://your-domain.example
+VITE_SIGNAL_URL=
 ```
 
-Use only a publishable key in the browser. Never place a Supabase secret or service-role key in a
-`VITE_` variable.
+Leave `VITE_SIGNAL_URL` blank for a same-origin deployment. The deployment host must support
+long-lived WebSockets; a serverless platform that terminates WebSocket connections will not work.
 
-## Database setup
+### Deploy on Render
 
-Install Docker and the Supabase CLI, then run:
+The repository includes `render.yaml` for a single free Render web service:
 
-```bash
-npx supabase start
-npx supabase db reset
+1. Open [Render Blueprints](https://dashboard.render.com/blueprints).
+2. Connect this GitHub repository.
+3. Render detects `render.yaml`; approve the `pairly-p2p-chat` service.
+4. Open the assigned `https://...onrender.com` URL after the build finishes.
+
+No environment variables are required for a same-origin Render deployment. Free services may take
+about a minute to wake after being idle.
+
+## STUN and TURN
+
+The client uses public Google STUN servers by default. STUN works for many home, campus, and mobile
+networks, but it does not guarantee a direct route through every NAT or firewall.
+
+Custom ICE servers can be provided at build time:
+
+```env
+VITE_ICE_SERVERS_JSON=[{"urls":"stun:stun.example.com:3478"}]
 ```
 
-For an existing hosted project:
+For reliable production connectivity, add a TURN server with short-lived credentials. Static TURN
+credentials should not be committed to the repository.
 
-```bash
-npx supabase link --project-ref your-project-ref
-npx supabase db push
-```
+## How signaling differs from chat
 
-The migration in `supabase/migrations/` creates profiles, projects, tasks, enums, indexes, update
-triggers, Auth profile provisioning, RLS policies, API grants, and Realtime publication entries.
+The WebSocket server is used only before and around the direct connection:
+
+1. Create or join an in-memory room.
+2. Forward an SDP offer and answer.
+3. Forward ICE candidates describing possible network routes.
+4. Notify the remaining peer when a socket leaves.
+
+Once the `chat` and `files` data channels open, their payloads move between browsers. WebRTC
+encrypts data channels with DTLS. Pairly accurately describes this as encrypted in transit; it does
+not claim verified peer identity because fingerprints are not authenticated out of band.
 
 ## Quality checks
 
@@ -77,94 +108,23 @@ triggers, Auth profile provisioning, RLS policies, API grants, and Realtime publ
 npm run check
 ```
 
-This runs linting, TypeScript, unit tests, and a production build.
+This runs ESLint, strict client/server type checks, unit and signaling integration tests, and both
+production builds.
 
-## Project guide
+## Project map
 
-- `AGENTS.md` — short operating guide for coding agents and reviewers
-- `.cursor/rules/` — product, UI, and Supabase invariants
-- `.agents/skills/` — pinned UI, web testing, and Supabase guidance
-- `docs/ARCHITECTURE.md` — runtime modes, data flow, and trade-offs
-- `docs/DESIGN_SYSTEM.md` — visual system and accessibility floor
-- `wireframes/` — original product-flow wireframe
+- `shared/protocol.ts` — signaling message types and runtime validation
+- `server/room-manager.ts` — ephemeral two-peer rooms
+- `server/index.ts` — HTTP, WebSocket signaling, origin checks, and heartbeat cleanup
+- `src/hooks/usePeerSession.ts` — WebRTC state machine, chat, and files
+- `src/App.tsx` — room and conversation interface
+- `docs/ARCHITECTURE.md` — data flow, boundaries, and trade-offs
+- `docs/DESIGN_SYSTEM.md` — visual and interaction rules
 
-## Design rationale
+## Current limitations
 
-The interface follows the supplied references without copying them: a compact left rail, quiet
-working canvas, readable task cards, and color used for state rather than decoration. The final
-palette avoids the familiar teal-on-white generated-dashboard look.
-# React + TypeScript + Vite
-
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
-
-Currently, two official plugins are available:
-
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
-
-## React Compiler
-
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
-
-## Expanding the ESLint configuration
-
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
-
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
-
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
-
-```
-
-You can also install [eslint-plugin-react-x](https://npmx.dev/package/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://npmx.dev/package/eslint-plugin-react-dom) for React-specific lint rules:
-
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
-
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
-
-```
+- Rooms live in one server process; horizontal scaling would need shared room state or sticky
+  sessions.
+- There is no TURN service configured by default.
+- Refreshing a page clears its local messages and files.
+- Group chat is intentionally deferred; a mesh would require one peer connection per participant.

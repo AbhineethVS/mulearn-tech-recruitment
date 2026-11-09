@@ -1,32 +1,41 @@
-# Boardline design system
+# Pairly design system
 
-Boardline is a calm project desk, not a generic SaaS dashboard. The reference images informed the
-compact sidebar, generous working canvas, clear card hierarchy, and quiet use of color.
+Pairly should look like a clear network instrument without becoming a dark developer console. The
+defining visual is a line joining two visible endpoints. Borders and rails explain structure; they
+are not decoration.
 
 ## Tokens
 
-- Canvas `#f3f4f6`, surface `#ffffff`, soft surface `#f8f8f7`
-- Ink `#18191c`, muted text `#6d6d68`, divider `#e5e5e2`
-- Action coral `#ff715b`; amber, lilac, and green appear only where status benefits
-- Display: Manrope 600–800; interface: DM Sans 400–700
-- Radius is contextual: 9–11px controls/cards, 14–16px major panels
+- Canvas `#edf0ef`, paper `#f8faf8`, ink `#142023`
+- Muted text `#617073`, divider `#cfd7d5`, strong divider `#aab7b5`
+- Route blue `#2755d9`, connected green `#08785e`, negotiating amber `#a75d05`
+- Error red `#b53c36`; every status color must also have a text label
+- Interface: Familjen Grotesk 400–700; network identifiers: DM Mono 400–500
+- Square corners by default; circles are reserved for peers and connection-status nodes
 
 ## Composition
 
-The sidebar and top bar stay quiet. Page titles and the Kanban board carry the hierarchy. Dashboard
-metrics are one compact row, not a wall of oversized cards. Kanban columns intentionally scroll on
-small screens so task cards remain readable and draggable.
+The landing page places the explanation and live route illustration before the room controls. The
+conversation uses three horizontal layers: global room controls, a two-endpoint connection rail,
+and the message workspace. Desktop adds a narrow local diagnostics timeline; mobile removes it
+before reducing conversation width.
+
+The memorable element is the route itself. Do not add decorative gradients, floating shapes, or a
+collection of unrelated cards.
 
 ## Interaction floor
 
-- Visible keyboard focus on every control
-- 40px minimum control height
-- Text labels accompany status color
-- Reduced-motion preference removes transitions
-- Dialogs close with Escape and retain clear cancel/save actions
-- Empty columns explain where a task can be dropped
+- Controls are at least 44 px where layout allows
+- Keyboard focus is visible on every interactive element
+- Connection changes use text, icon, and color together
+- Waiting, connecting, connected, disconnected, and failed states each explain the next action
+- Enter sends; Shift+Enter adds a line
+- Peer text wraps safely and is never rendered as HTML
+- Reduced motion disables the loading rotation and nonessential transitions
+- The interface has no horizontal overflow at 375 px
 
-## Avoid
+## Voice
 
-No teal-led branding, gradients, glass effects, floating blobs, emoji icons, all-caps labels, or
-ornamental metrics. Do not apply the same radius, shadow, or color to every element.
+Use short, factual language: “Create a room”, “Waiting for peer”, “Direct channel open”, and “Try
+again”. Avoid claiming anonymous communication, permanent privacy, or authenticated end-to-end
+identity. “Encrypted in transit” is accurate for the current WebRTC implementation.

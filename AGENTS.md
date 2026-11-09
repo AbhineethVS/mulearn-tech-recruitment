@@ -1,25 +1,25 @@
-# Boardline agent guide
+# Pairly agent guide
 
 Read the relevant rule in `.cursor/rules/` before changing code. Keep this file short; detailed
 decisions live in `docs/`.
 
 ## Product contract
 
-- Complete the recruitment brief before adding bonus scope.
-- Preserve the four statuses: `todo`, `in_progress`, `review`, `completed`.
-- Demo mode must remain usable without secrets, OAuth, or network access.
-- Cloud mode must use Supabase Auth and RLS; never expose a secret/service-role key.
-- Prefer clear student-team language over generic SaaS copy.
+- Build for MuLearn Task 01; reliable two-peer text chat outranks bonus features.
+- Chat messages and file contents must travel through WebRTC data channels, never signaling.
+- The Node/WebSocket server may exchange room membership, SDP, and ICE candidates only.
+- Keep rooms ephemeral, limited to two peers, and usable without accounts or a database.
+- Describe STUN and TURN accurately; never claim that STUN guarantees connectivity.
 
 ## Quality gates
 
 Run `npm run check` before handoff. For UI changes, verify 375 px and desktop widths, keyboard
-focus, reduced motion, empty states, and drag/drop persistence. For schema changes, create a new
-Supabase migration and review every exposed table's RLS policies.
+focus, reduced motion, waiting/error states, and text wrapping. For networking changes, test two
+isolated browser pages, disconnect handling, candidate ordering, and signaling payload validation.
 
 ## Reference map
 
 - `docs/ARCHITECTURE.md` — data flow and implementation decisions
 - `docs/DESIGN_SYSTEM.md` — visual direction and UI constraints
-- `supabase/migrations/` — source of truth for database structure
-- `.agents/skills/` — project-pinned UI, testing, and Supabase skills
+- `shared/protocol.ts` — source of truth for signaling messages
+- `.agents/skills/` — reusable project-pinned design, testing, and platform skills

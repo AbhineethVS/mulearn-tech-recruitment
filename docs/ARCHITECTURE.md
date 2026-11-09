@@ -1,39 +1,64 @@
 # Architecture
 
-## Runtime modes
+## Runtime shape
 
-Boardline deliberately has two data modes:
+Pairly is one TypeScript project with two runtimes:
 
-1. **Demo mode** uses the pre-filled `demo@boardline.app` credentials. Data is seeded and persisted
-   in local storage, so an evaluator can exercise every core flow without email confirmation or
-   external setup.
-2. **Cloud mode** activates when `VITE_SUPABASE_URL` and
-   `VITE_SUPABASE_PUBLISHABLE_KEY` are present. Non-demo credentials use Supabase Auth, and project
-   and task mutations use the Data API.
+1. The React client creates rooms, negotiates WebRTC, and owns messages and files.
+2. The Node server serves the production build and accepts signaling WebSockets at `/signal`.
 
-The demo is not a security substitute. Production authorization lives in Postgres RLS.
+There is no account system, database, or server-side message history. Rooms exist only in the
+signaling process memory and are deleted after both sockets leave.
 
-## Data model
+## Connection flow
 
-- `profiles` mirrors Auth users and stores display information and role.
-- `projects` belongs to one owner and cascades deletion to its tasks.
-- `tasks` belongs to a project and owner, with fixed enum values for priority and status.
-- Composite indexes support the main board query: project, status, then position.
+1. The first browser opens a WebSocket and asks the server to create a room.
+2. The second browser joins with the eight-character code.
+3. The server tells the existing browser that a peer arrived.
+4. That browser creates an `RTCPeerConnection`, two data channels, and an SDP offer.
+5. The server forwards the offer, answer, and trickled ICE candidates between the paired sockets.
+6. After WebRTC connects, chat and file payloads travel over the data channels. The signaling server
+   cannot read or store those payloads.
 
-All exposed tables have RLS. Project and task policies compare `auth.uid()` with `owner_id`.
-Task inserts and updates also verify that the referenced project belongs to the caller.
+The server-designated existing peer always offers, avoiding offer collision. Candidates received
+before `setRemoteDescription` are queued and applied afterward.
 
-## UI structure
+## Code boundaries
 
-`Boardline.tsx` owns the intentionally small MVP state machine: authentication, active view,
-projects, tasks, filters, and mutations. Domain fixtures and types are isolated in `lib/data.ts`;
-the optional client is isolated in `lib/supabase.ts`. This keeps the submission easy to explain in
-a viva while preserving a clean extraction path to hooks and route modules as scope grows.
+- `shared/protocol.ts` defines and validates the signaling protocol used by both runtimes.
+- `server/room-manager.ts` owns two-peer room membership without knowing about SDP.
+- `server/index.ts` owns HTTP, WebSocket origin checks, heartbeat cleanup, and signal forwarding.
+- `src/lib/signaling.ts` wraps the browser WebSocket.
+- `src/lib/peer-connection.ts` owns ICE configuration and browser WebRTC utilities.
+- `src/hooks/usePeerSession.ts` coordinates signaling, connection state, messages, acknowledgements,
+  typing, disconnects, and files.
+- `src/App.tsx` renders the room and conversation states without implementing network protocols.
 
-## Important trade-offs
+## Data channels
 
-- Assignee names are stored with each task for the MVP; `assigned_to` is available for a future
-  member picker.
-- Demo persistence is browser-local; cloud accounts use the database.
-- Dragging changes status and persists it. Fine-grained ordering is represented by `position` and
-  can be expanded into within-column sorting later.
+`chat` is a reliable ordered channel carrying JSON envelopes for text, delivery acknowledgements,
+and typing state. `files` is a separate reliable ordered channel so file buffering does not share
+the chat protocol. Files are capped at 25 MB, split into 16 KiB binary chunks, and paused when the
+channel buffer crosses its threshold.
+
+## Network traversal
+
+The default ICE configuration uses public STUN servers. STUN lets many peers discover a usable
+public route, but it cannot traverse every NAT or firewall. A production deployment that needs
+reliable connectivity should add TURN using temporary credentials. TURN relays encrypted WebRTC
+traffic when no direct route works; it is not the signaling server.
+
+## Security boundaries
+
+- WebSocket messages are validated and limited to 64 KiB.
+- Rooms contain at most two peers and use cryptographically random codes.
+- Production WebSocket upgrades require a matching configured or same-host origin.
+- React renders peer text as text, not HTML.
+- WebRTC encrypts data channels with DTLS. This protects transport, but without out-of-band
+  fingerprint verification the app does not claim authenticated peer identity.
+
+## Deployment
+
+`npm run build` creates `dist/` and `server-dist/`. `npm start` runs one Node process that serves
+the frontend, `/health`, and `/signal`. The host must support long-lived WebSocket connections;
+serverless hosts that terminate WebSockets are unsuitable.

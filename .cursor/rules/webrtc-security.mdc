@@ -1,0 +1,16 @@
+---
+description: WebRTC and signaling security invariants
+globs: "{server,shared,src}/**/*.{ts,tsx}"
+alwaysApply: false
+---
+
+# WebRTC and signaling security
+
+- Validate every WebSocket payload at runtime and cap signaling messages at 64 KiB.
+- Generate room codes with cryptographic randomness, limit rooms to two peers, and delete empty rooms.
+- Relay only SDP descriptions and ICE candidates; never log or route chat text or file bytes.
+- Check WebSocket origins in production and use `wss:` whenever the page uses HTTPS.
+- Queue ICE candidates until the remote description exists, and close every channel/listener on leave.
+- Keep file transfers bounded, chunked, backpressured, and initiated only after explicit user selection.
+- WebRTC data channels use DTLS encryption, but do not claim verified peer identity without fingerprint verification.
+- Never commit static TURN credentials. Prefer short-lived TURN credentials issued by a trusted service.
