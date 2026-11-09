@@ -128,6 +128,7 @@ production builds.
 - `src/App.tsx` — room and conversation interface
 - `docs/ARCHITECTURE.md` — data flow, boundaries, and trade-offs
 - `docs/DESIGN_SYSTEM.md` — visual and interaction rules
+- `docs/PROBLEMS_ENCOUNTERED.md` — diagnosed failures, evidence, fixes, and lessons
 
 ## Current limitations
 
