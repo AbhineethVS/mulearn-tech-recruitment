@@ -12,6 +12,93 @@ type IceConfiguration = {
   turnConfigured: boolean
 }
 
+export type IceFailureDiagnosis = {
+  title: string
+  detail: string
+}
+
+type ParsedCandidate = {
+  address: string
+  type: string
+}
+
+function parseCandidate(candidate: string): ParsedCandidate | null {
+  const parts = candidate.trim().split(/\s+/)
+  const typeIndex = parts.indexOf('typ')
+  if (parts.length < 8 || typeIndex === -1 || !parts[typeIndex + 1]) return null
+  return { address: parts[4], type: parts[typeIndex + 1] }
+}
+
+function privateIpv4(address: string) {
+  const octets = address.split('.').map(Number)
+  if (octets.length !== 4 || octets.some((octet) => !Number.isInteger(octet))) return null
+  const [first, second] = octets
+  const privateAddress =
+    first === 10 ||
+    (first === 172 && second >= 16 && second <= 31) ||
+    (first === 192 && second === 168)
+  return privateAddress ? octets : null
+}
+
+export function diagnoseIceFailure({
+  localCandidates,
+  remoteCandidates,
+  turnConfigured,
+}: {
+  localCandidates: string[]
+  remoteCandidates: string[]
+  turnConfigured: boolean
+}): IceFailureDiagnosis {
+  const localHosts = localCandidates
+    .map(parseCandidate)
+    .filter((candidate): candidate is ParsedCandidate => candidate?.type === 'host')
+  const remoteHosts = remoteCandidates
+    .map(parseCandidate)
+    .filter((candidate): candidate is ParsedCandidate => candidate?.type === 'host')
+
+  const samePrivateSubnet = localHosts.some((local) => {
+    const localAddress = privateIpv4(local.address)
+    if (!localAddress) return false
+    return remoteHosts.some((remote) => {
+      const remoteAddress = privateIpv4(remote.address)
+      return (
+        remoteAddress !== null &&
+        localAddress.slice(0, 3).every((octet, index) => octet === remoteAddress[index])
+      )
+    })
+  })
+
+  if (samePrivateSubnet) {
+    return {
+      title: 'Likely local-network isolation',
+      detail:
+        'Both peers advertised the same local network, but ICE could not exchange packets. Avoid guest Wi-Fi, disable AP/client isolation, check endpoint firewalls, or connect the phone to the laptop’s mobile hotspot.',
+    }
+  }
+
+  if (remoteCandidates.length === 0) {
+    return {
+      title: 'Peer network details did not arrive',
+      detail:
+        'The other browser did not provide usable ICE candidates. Refresh both pages, create a new room, and check that signaling remains connected.',
+    }
+  }
+
+  if (!turnConfigured) {
+    return {
+      title: 'The direct route is blocked',
+      detail:
+        'The peers exchanged network details, but no direct candidate pair worked. Try a different non-guest network or the laptop’s mobile hotspot. TURN is an optional relayed fallback.',
+    }
+  }
+
+  return {
+    title: 'No direct or relayed route worked',
+    detail:
+      'ICE tested the available direct and TURN routes without selecting a pair. Retry once, then verify the TURN credentials and network firewall rules.',
+  }
+}
+
 let iceConfigurationPromise: Promise<IceConfiguration> | null = null
 
 async function loadIceConfiguration(): Promise<IceConfiguration> {

@@ -7,6 +7,7 @@ import {
 } from '../../shared/protocol'
 import {
   createPeerConnection,
+  diagnoseIceFailure,
   toCandidatePayload,
   toDescriptionPayload,
   waitForChannelBuffer,
@@ -80,6 +81,7 @@ export function usePeerSession() {
   const [transfers, setTransfers] = useState<FileTransfer[]>([])
   const [events, setEvents] = useState<ConnectionEvent[]>([])
   const [error, setError] = useState('')
+  const [failureHelp, setFailureHelp] = useState('')
   const [peerTyping, setPeerTyping] = useState(false)
 
   const signalRef = useRef<SignalClient | null>(null)
@@ -88,6 +90,8 @@ export function usePeerSession() {
   const fileChannelRef = useRef<RTCDataChannel | null>(null)
   const turnConfiguredRef = useRef(false)
   const queuedCandidatesRef = useRef<IceCandidatePayload[]>([])
+  const localCandidatesRef = useRef<string[]>([])
+  const remoteCandidatesRef = useRef<string[]>([])
   const incomingFileRef = useRef<{
     id: string
     name: string
@@ -247,6 +251,8 @@ export function usePeerSession() {
     peerRef.current = null
     turnConfiguredRef.current = false
     queuedCandidatesRef.current = []
+    localCandidatesRef.current = []
+    remoteCandidatesRef.current = []
     incomingFileRef.current = null
     setPeerTyping(false)
   }, [])
@@ -274,6 +280,7 @@ export function usePeerSession() {
           addEvent('ICE gathering complete', 'All available network routes were checked.')
           return
         }
+        localCandidatesRef.current.push(event.candidate.candidate)
         signalRef.current?.send({
           type: 'ice_candidate',
           candidate: toCandidatePayload(event.candidate),
@@ -286,19 +293,15 @@ export function usePeerSession() {
           changePhase('reconnecting')
           addEvent('Route interrupted', 'The browser is attempting to recover the connection.', 'danger')
         } else if (peer.connectionState === 'failed') {
+          const diagnosis = diagnoseIceFailure({
+            localCandidates: localCandidatesRef.current,
+            remoteCandidates: remoteCandidatesRef.current,
+            turnConfigured: turnConfiguredRef.current,
+          })
           changePhase('disconnected')
-          setError(
-            turnConfiguredRef.current
-              ? 'WebRTC could not establish either a direct or relayed route. Try again.'
-              : 'The direct route failed and no TURN fallback is configured.',
-          )
-          addEvent(
-            'Connection failed',
-            turnConfiguredRef.current
-              ? 'No working direct or TURN route remained.'
-              : 'This network combination likely requires TURN.',
-            'danger',
-          )
+          setError(diagnosis.title)
+          setFailureHelp(diagnosis.detail)
+          addEvent(diagnosis.title, diagnosis.detail, 'danger')
         }
       })
       peer.addEventListener('datachannel', (event) => attachChannel(event.channel))
@@ -388,6 +391,7 @@ export function usePeerSession() {
         return
       }
       if (message.type === 'ice_candidate') {
+        remoteCandidatesRef.current.push(message.candidate.candidate)
         const peer = peerRef.current
         if (!peer?.remoteDescription) queuedCandidatesRef.current.push(message.candidate)
         else await peer.addIceCandidate(message.candidate)
@@ -447,6 +451,7 @@ export function usePeerSession() {
     setTransfers([])
     setEvents([])
     setError('')
+    setFailureHelp('')
   }, [])
 
   const createRoom = useCallback(async () => {
@@ -489,6 +494,7 @@ export function usePeerSession() {
     setRoomCode('')
     setPeerId('')
     setError('')
+    setFailureHelp('')
     changePhase('idle')
     intentionalCloseRef.current = false
   }, [changePhase, closePeer])
@@ -497,6 +503,7 @@ export function usePeerSession() {
     if (!roomCode) return
     closePeer()
     setError('')
+    setFailureHelp('')
     changePhase('reconnecting')
     if (signalRef.current?.isOpen()) {
       changePhase('waiting')
@@ -623,6 +630,7 @@ export function usePeerSession() {
     transfers,
     events,
     error,
+    failureHelp,
     peerTyping,
     maxFileSize: MAX_FILE_SIZE,
     createRoom,

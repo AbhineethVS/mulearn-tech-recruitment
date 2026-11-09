@@ -74,6 +74,19 @@ Other valid resolutions include:
 - Test on a network that permits communication between local clients.
 - Use managed TURN when a direct route is impossible.
 
+### Product improvement
+
+The original generic “connection failed” message did not help a reviewer recover. P4Pair now keeps
+track of local and remote ICE candidate evidence. If both peers advertise host candidates in the
+same private subnet but ICE still fails, the interface reports **“Likely local-network isolation”**
+and suggests non-guest Wi-Fi, disabling AP/client isolation, checking endpoint firewalls, or using
+the laptop's mobile hotspot.
+
+This is deliberately described as “likely,” not certain. Browser JavaScript cannot run ARP or ping
+tests, so it cannot distinguish router isolation from every possible endpoint firewall. Other
+candidate patterns receive different guidance, including missing peer candidates, a blocked direct
+route without TURN, or failure of both direct and relayed routes.
+
 ### Why TURN is still useful
 
 P4Pair always allows ICE to try direct host and STUN-discovered routes first. TURN is a fallback for

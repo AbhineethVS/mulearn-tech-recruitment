@@ -384,7 +384,10 @@ function ChatWorkspace({ session }: { session: ReturnType<typeof usePeerSession>
 
           {(session.error || fileError) && (
             <div className="conversation-error" role="alert">
-              <span>{fileError || session.error}</span>
+              <div className="error-copy">
+                <strong>{fileError || session.error}</strong>
+                {!fileError && session.failureHelp && <p>{session.failureHelp}</p>}
+              </div>
               {(session.phase === 'disconnected' || session.phase === 'failed') && (
                 <button type="button" onClick={session.retry}><RefreshCw size={15} /> Try again</button>
               )}
