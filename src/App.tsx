@@ -108,6 +108,8 @@ function Landing({
   error,
   online,
   pwa,
+  displayName,
+  onDisplayName,
 }: {
   roomInput: string
   onRoomInput: (value: string) => void
@@ -117,7 +119,10 @@ function Landing({
   error: string
   online: boolean
   pwa: ReturnType<typeof usePwa>
+  displayName: string
+  onDisplayName: (value: string) => void
 }) {
+  const nameReady = displayName.trim().length >= 2
   const submit = (event: FormEvent) => {
     event.preventDefault()
     onJoin()
@@ -162,7 +167,19 @@ function Landing({
           <h2 id="room-panel-title">Meet in a room</h2>
           <p>Rooms hold two people and disappear when both leave.</p>
 
-          <button className="primary-action" type="button" onClick={onCreate} disabled={busy || !online}>
+          <label className="name-field">
+            <span>Your name</span>
+            <input
+              value={displayName}
+              onChange={(event) => onDisplayName(event.target.value)}
+              placeholder="How your peer sees you"
+              autoComplete="nickname"
+              maxLength={24}
+            />
+            <small>Shared with your peer over WebRTC, not stored on the server.</small>
+          </label>
+
+          <button className="primary-action" type="button" onClick={onCreate} disabled={busy || !online || !nameReady}>
             <Link2 size={19} />
             {busy ? 'Opening signal…' : 'Create a room'}
           </button>
@@ -181,7 +198,7 @@ function Landing({
                 spellCheck={false}
                 maxLength={8}
               />
-              <button type="submit" disabled={busy || !online || roomInput.length !== 8}>
+              <button type="submit" disabled={busy || !online || !nameReady || roomInput.length !== 8}>
                 Join
                 <ArrowUp size={17} />
               </button>
@@ -210,9 +227,13 @@ function Landing({
 function ConnectionRail({
   phase,
   route,
+  localName,
+  peerName,
 }: {
   phase: SessionPhase
   route: ConnectionRoute | null
+  localName: string
+  peerName: string
 }) {
   const status = phaseCopy[phase]
   const label = phase === 'connected' && route ? route.label : status.label
@@ -220,7 +241,7 @@ function ConnectionRail({
     <section className={`connection-rail tone-${status.tone}`} aria-label="Connection route">
       <div className="rail-peer">
         <span className="peer-node"><UserRound size={17} /></span>
-        <span><b>This browser</b><small>Local peer</small></span>
+        <span><b>{localName || 'This browser'}</b><small>You · local peer</small></span>
       </div>
       <div className="rail-path">
         <span />
@@ -231,7 +252,7 @@ function ConnectionRail({
         <span />
       </div>
       <div className="rail-peer rail-peer-right">
-        <span><b>Other browser</b><small>Remote peer</small></span>
+        <span><b>{peerName || 'Other browser'}</b><small>Remote peer</small></span>
         <span className="peer-node"><UserRound size={17} /></span>
       </div>
     </section>
@@ -402,6 +423,24 @@ function ChatWorkspace({
   )
   const voice = useVoiceRecorder(handleVoiceRecorded)
   const { cancel: cancelVoice, recording: voiceRecording } = voice
+  const timeline = useMemo(
+    () =>
+      [
+        ...session.messages.map((message) => ({
+          kind: 'message' as const,
+          id: message.id,
+          sentAt: message.sentAt,
+          message,
+        })),
+        ...session.transfers.map((transfer) => ({
+          kind: 'transfer' as const,
+          id: transfer.id,
+          sentAt: transfer.sentAt,
+          transfer,
+        })),
+      ].sort((first, second) => Date.parse(first.sentAt) - Date.parse(second.sentAt)),
+    [session.messages, session.transfers],
+  )
 
   const inviteUrl = useMemo(() => {
     if (!session.roomCode) return ''
@@ -493,7 +532,12 @@ function ChatWorkspace({
         </div>
       </header>
 
-      <ConnectionRail phase={session.phase} route={session.route} />
+      <ConnectionRail
+        phase={session.phase}
+        route={session.route}
+        localName={session.displayName.trim()}
+        peerName={session.peerName}
+      />
 
       <main className="chat-layout">
         <section className="conversation" aria-label="Peer conversation">
@@ -516,7 +560,7 @@ function ChatWorkspace({
           </header>
 
           <div className="message-list" aria-live="polite">
-            {session.messages.length === 0 && session.transfers.length === 0 && (
+            {timeline.length === 0 && (
               <div className="conversation-empty">
                 {session.phase === 'waiting' ? (
                   <>
@@ -541,27 +585,41 @@ function ChatWorkspace({
               </div>
             )}
 
-            {session.messages.map((message) => (
-              <article className={`message message-${message.direction}`} key={message.id}>
-                <p>{message.text}</p>
-                <footer>
-                  <time dateTime={message.sentAt}>
-                    {new Date(message.sentAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                  </time>
-                  {message.direction === 'outgoing' && (
-                    <MessageReceipt status={message.status} />
-                  )}
-                </footer>
-              </article>
-            ))}
+            {timeline.map((entry) =>
+              entry.kind === 'message' ? (
+                <article
+                  className={`message message-${entry.message.direction}`}
+                  key={entry.id}
+                >
+                  <p>{entry.message.text}</p>
+                  <footer>
+                    <time dateTime={entry.message.sentAt}>
+                      {new Date(entry.message.sentAt).toLocaleTimeString([], {
+                        hour: '2-digit',
+                        minute: '2-digit',
+                      })}
+                    </time>
+                    {entry.message.direction === 'outgoing' && (
+                      <MessageReceipt status={entry.message.status} />
+                    )}
+                  </footer>
+                </article>
+              ) : entry.transfer.category === 'voice' ? (
+                <VoiceNoteItem key={entry.id} transfer={entry.transfer} />
+              ) : (
+                <TransferItem
+                  key={entry.id}
+                  transfer={entry.transfer}
+                  onCancel={session.cancelTransfer}
+                />
+              ),
+            )}
 
-            {session.transfers.map((transfer) => (
-              transfer.category === 'voice'
-                ? <VoiceNoteItem key={transfer.id} transfer={transfer} />
-                : <TransferItem key={transfer.id} transfer={transfer} onCancel={session.cancelTransfer} />
-            ))}
-
-            {session.peerTyping && <p className="typing-indicator">Peer is typing<span>…</span></p>}
+            {session.peerTyping && (
+              <p className="typing-indicator">
+                {session.peerName || 'Peer'} is typing<span>…</span>
+              </p>
+            )}
             <div ref={messageEndRef} />
           </div>
 
@@ -619,37 +677,39 @@ function ChatWorkspace({
               </>
             ) : (
               <>
-                <button
-                  className="attach-button"
-                  type="button"
-                  onClick={() => fileInputRef.current?.click()}
-                  disabled={session.phase !== 'connected'}
-                  aria-label="Send a file"
-                  title="Send a file up to 25 MB"
-                >
-                  <Paperclip size={19} />
-                </button>
-                <textarea
-                  value={draft}
-                  onChange={(event) => updateDraft(event.target.value)}
-                  onKeyDown={keyDown}
-                  onBlur={() => session.sendTyping(false)}
-                  placeholder={session.phase === 'connected' ? 'Write a direct message' : 'Connect to begin messaging'}
-                  disabled={session.phase !== 'connected'}
-                  maxLength={4000}
-                  rows={1}
-                  aria-label="Message"
-                />
-                <button
-                  className="voice-button"
-                  type="button"
-                  onClick={() => void voice.start()}
-                  disabled={session.phase !== 'connected'}
-                  aria-label="Record a voice message"
-                  title="Record voice message"
-                >
-                  <Mic size={19} />
-                </button>
+                <div className="composer-field">
+                  <button
+                    className="attach-button"
+                    type="button"
+                    onClick={() => fileInputRef.current?.click()}
+                    disabled={session.phase !== 'connected'}
+                    aria-label="Send a file"
+                    title="Send a file up to 25 MB"
+                  >
+                    <Paperclip size={19} />
+                  </button>
+                  <textarea
+                    value={draft}
+                    onChange={(event) => updateDraft(event.target.value)}
+                    onKeyDown={keyDown}
+                    onBlur={() => session.sendTyping(false)}
+                    placeholder={session.phase === 'connected' ? 'Write a direct message' : 'Connect to begin messaging'}
+                    disabled={session.phase !== 'connected'}
+                    maxLength={4000}
+                    rows={1}
+                    aria-label="Message"
+                  />
+                  <button
+                    className="voice-button"
+                    type="button"
+                    onClick={() => void voice.start()}
+                    disabled={session.phase !== 'connected'}
+                    aria-label="Record a voice message"
+                    title="Record voice message"
+                  >
+                    <Mic size={19} />
+                  </button>
+                </div>
                 <button className="send-button" type="submit" disabled={session.phase !== 'connected' || !draft.trim()} aria-label="Send message">
                   <ArrowUp size={19} />
                 </button>
@@ -739,11 +799,27 @@ function PwaNotice({ pwa }: { pwa: ReturnType<typeof usePwa> }) {
 
 export default function App() {
   const [roomInput, setRoomInput] = useState(() => {
-    const code = new URLSearchParams(window.location.search).get('room') ?? ''
+    const queryCode = new URLSearchParams(window.location.search).get('room')
+    let code = queryCode ?? ''
+    if (!code) {
+      try {
+        code = window.localStorage.getItem('p4pair:last-room') ?? ''
+      } catch {
+        // A saved room is optional.
+      }
+    }
     return normalizeRoomCode(code)
   })
   const session = usePeerSession()
   const pwa = usePwa()
+
+  useEffect(() => {
+    if (!session.roomCode) return
+    const url = new URL(window.location.href)
+    url.search = ''
+    url.searchParams.set('room', session.roomCode)
+    window.history.replaceState({}, '', url)
+  }, [session.roomCode])
 
   let content: ReactNode
   if (session.phase !== 'idle' && !session.roomCode && session.phase !== 'failed') {
@@ -768,6 +844,8 @@ export default function App() {
         error={session.error}
         online={pwa.online}
         pwa={pwa}
+        displayName={session.displayName}
+        onDisplayName={session.setDisplayName}
       />
     )
   }

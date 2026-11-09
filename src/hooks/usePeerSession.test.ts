@@ -16,3 +16,11 @@ describe('peer message receipts', () => {
     ).toBe(false)
   })
 })
+
+describe('peer profiles', () => {
+  it('accepts bounded display names and rejects empty names', () => {
+    expect(isPeerEnvelope({ kind: 'profile', name: 'Akhil' })).toBe(true)
+    expect(isPeerEnvelope({ kind: 'profile', name: ' ' })).toBe(false)
+    expect(isPeerEnvelope({ kind: 'profile', name: 'x'.repeat(25) })).toBe(false)
+  })
+})

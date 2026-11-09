@@ -42,7 +42,7 @@ const resumeTokenKey = (roomCode: string) => `p4pair:resume:${roomCode}`
 
 function readResumeToken(roomCode: string) {
   try {
-    return window.localStorage.getItem(resumeTokenKey(roomCode)) ?? undefined
+    return window.sessionStorage.getItem(resumeTokenKey(roomCode)) ?? undefined
   } catch {
     return undefined
   }
@@ -50,7 +50,7 @@ function readResumeToken(roomCode: string) {
 
 function rememberRoom(roomCode: string, resumeToken: string) {
   try {
-    window.localStorage.setItem(resumeTokenKey(roomCode), resumeToken)
+    window.sessionStorage.setItem(resumeTokenKey(roomCode), resumeToken)
     window.localStorage.setItem('p4pair:last-room', roomCode)
   } catch {
     // Rejoining still works normally when storage is unavailable.
@@ -59,7 +59,7 @@ function rememberRoom(roomCode: string, resumeToken: string) {
 
 function forgetRoom(roomCode: string) {
   try {
-    window.localStorage.removeItem(resumeTokenKey(roomCode))
+    window.sessionStorage.removeItem(resumeTokenKey(roomCode))
     if (window.localStorage.getItem('p4pair:last-room') === roomCode) {
       window.localStorage.removeItem('p4pair:last-room')
     }
@@ -84,6 +84,13 @@ export const isPeerEnvelope = (value: unknown): value is PeerEnvelope => {
       Array.isArray(item.ids) &&
       item.ids.length <= 100 &&
       item.ids.every((id) => typeof id === 'string')
+    )
+  }
+  if (item.kind === 'profile') {
+    return (
+      typeof item.name === 'string' &&
+      item.name.trim().length >= 2 &&
+      item.name.trim().length <= 24
     )
   }
   if (item.kind === 'typing') return typeof item.active === 'boolean'
@@ -111,6 +118,9 @@ const isFileControl = (value: unknown): value is FileControlEnvelope => {
     item.size >= 0 &&
     item.size <= MAX_FILE_SIZE &&
     typeof item.mimeType === 'string' &&
+    typeof item.sentAt === 'string' &&
+    item.sentAt.length <= 64 &&
+    Number.isFinite(Date.parse(item.sentAt)) &&
     (item.category === 'file' ||
       (item.mimeType.startsWith('audio/') &&
         typeof item.durationMs === 'number' &&
@@ -135,6 +145,14 @@ export function usePeerSession() {
   const [failureHelp, setFailureHelp] = useState('')
   const [route, setRoute] = useState<ConnectionRoute | null>(null)
   const [peerTyping, setPeerTyping] = useState(false)
+  const [displayName, setDisplayNameState] = useState(() => {
+    try {
+      return window.localStorage.getItem('p4pair:display-name') ?? ''
+    } catch {
+      return ''
+    }
+  })
+  const [peerName, setPeerName] = useState('')
 
   const signalRef = useRef<SignalClient | null>(null)
   const peerRef = useRef<RTCPeerConnection | null>(null)
@@ -150,6 +168,7 @@ export function usePeerSession() {
     size: number
     mimeType: string
     category: 'file' | 'voice'
+    sentAt: string
     durationMs?: number
     waveform?: number[]
     chunks: ArrayBuffer[]
@@ -161,6 +180,7 @@ export function usePeerSession() {
   const signalHandlerRef = useRef<(message: ServerSignal) => void>(() => undefined)
   const intentionalCloseRef = useRef(false)
   const phaseRef = useRef<SessionPhase>('idle')
+  const displayNameRef = useRef(displayName)
 
   const changePhase = useCallback((next: SessionPhase) => {
     phaseRef.current = next
@@ -232,6 +252,8 @@ export function usePeerSession() {
                 : message,
             ),
           )
+        } else if (envelope.kind === 'profile') {
+          setPeerName(envelope.name.trim())
         } else {
           setPeerTyping(envelope.active)
         }
@@ -265,6 +287,7 @@ export function usePeerSession() {
             size: control.size,
             mimeType: control.mimeType,
             category: control.category,
+            sentAt: control.sentAt,
             durationMs: control.category === 'voice' ? control.durationMs : undefined,
             waveform: control.category === 'voice' ? control.waveform : undefined,
             chunks: [],
@@ -275,6 +298,7 @@ export function usePeerSession() {
             {
               id: control.transferId,
               category: control.category,
+              sentAt: control.sentAt,
               name: control.name,
               size: control.size,
               durationMs: control.category === 'voice' ? control.durationMs : undefined,
@@ -320,10 +344,16 @@ export function usePeerSession() {
         channel.addEventListener('open', () => {
           changePhase('connected')
           setError('')
+          const name = displayNameRef.current.trim()
+          if (name) {
+            channel.send(JSON.stringify({ kind: 'profile', name } satisfies PeerEnvelope))
+          }
           addEvent('Direct channel open', 'Messages now travel browser to browser.', 'success')
         })
         channel.addEventListener('close', () => {
-          if (phaseRef.current !== 'idle') changePhase('disconnected')
+          if (chatChannelRef.current === channel && phaseRef.current !== 'idle') {
+            changePhase('disconnected')
+          }
         })
       } else if (channel.label === 'files') {
         fileChannelRef.current = channel
@@ -335,12 +365,15 @@ export function usePeerSession() {
   )
 
   const closePeer = useCallback(() => {
-    chatChannelRef.current?.close()
-    fileChannelRef.current?.close()
-    peerRef.current?.close()
+    const chatChannel = chatChannelRef.current
+    const fileChannel = fileChannelRef.current
+    const peer = peerRef.current
     chatChannelRef.current = null
     fileChannelRef.current = null
     peerRef.current = null
+    chatChannel?.close()
+    fileChannel?.close()
+    peer?.close()
     turnConfiguredRef.current = false
     setRoute(null)
     queuedCandidatesRef.current = []
@@ -349,6 +382,7 @@ export function usePeerSession() {
     incomingFileRef.current = null
     pendingSeenRef.current.clear()
     setPeerTyping(false)
+    setPeerName('')
   }, [])
 
   const ensurePeer = useCallback(
@@ -683,6 +717,22 @@ export function usePeerSession() {
     }
   }, [])
 
+  const setDisplayName = useCallback((value: string) => {
+    const name = value.slice(0, 24)
+    displayNameRef.current = name
+    setDisplayNameState(name)
+    try {
+      window.localStorage.setItem('p4pair:display-name', name)
+    } catch {
+      // The name still works for the current page when storage is unavailable.
+    }
+    const trimmed = name.trim()
+    const channel = chatChannelRef.current
+    if (trimmed.length >= 2 && channel?.readyState === 'open') {
+      channel.send(JSON.stringify({ kind: 'profile', name: trimmed } satisfies PeerEnvelope))
+    }
+  }, [])
+
   const sendTransfer = useCallback(
     async ({
       blob,
@@ -702,6 +752,7 @@ export function usePeerSession() {
       if (blob.size > MAX_FILE_SIZE) throw new Error('Choose a file smaller than 25 MB.')
 
       const id = crypto.randomUUID()
+      const sentAt = new Date().toISOString()
       const localUrl = category === 'voice' ? URL.createObjectURL(blob) : undefined
       if (localUrl) transferUrlsRef.current.add(localUrl)
       setTransfers((current) => [
@@ -709,6 +760,7 @@ export function usePeerSession() {
         {
           id,
           category,
+          sentAt,
           name,
           size: blob.size,
           durationMs,
@@ -728,6 +780,7 @@ export function usePeerSession() {
               name,
               size: blob.size,
               mimeType: blob.type || 'audio/webm',
+              sentAt,
               durationMs: durationMs ?? 0,
               waveform: waveform ?? [],
             }
@@ -738,6 +791,7 @@ export function usePeerSession() {
               name,
               size: blob.size,
               mimeType: blob.type || 'application/octet-stream',
+              sentAt,
             }
       channel.send(JSON.stringify(metadata))
 
@@ -833,6 +887,8 @@ export function usePeerSession() {
     failureHelp,
     route,
     peerTyping,
+    displayName,
+    peerName,
     maxFileSize: MAX_FILE_SIZE,
     createRoom,
     joinRoom,
@@ -840,6 +896,7 @@ export function usePeerSession() {
     retry,
     sendMessage,
     sendTyping,
+    setDisplayName,
     sendFile,
     sendVoice,
     cancelTransfer,

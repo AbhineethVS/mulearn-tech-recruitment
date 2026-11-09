@@ -301,6 +301,33 @@ button:disabled {
   line-height: 1.45;
 }
 
+.name-field {
+  display: grid;
+  gap: 7px;
+  margin-bottom: 18px;
+}
+
+.name-field span {
+  font-size: 0.83rem;
+  font-weight: 600;
+}
+
+.name-field input {
+  min-height: 48px;
+  padding: 0 13px;
+  border: 1px solid var(--line-strong);
+  border-radius: 0;
+  background: white;
+  color: var(--ink);
+  font-size: 1rem;
+}
+
+.name-field small {
+  color: var(--muted);
+  font-size: 0.7rem;
+  line-height: 1.35;
+}
+
 .primary-action {
   display: flex;
   width: 100%;
@@ -812,7 +839,8 @@ button:disabled {
 
 .voice-note {
   display: flex;
-  width: min(100%, 420px);
+  width: clamp(240px, 68%, 380px);
+  max-width: 100%;
   align-items: center;
   gap: 11px;
   padding: 11px 12px;
@@ -1000,12 +1028,28 @@ button:disabled {
 
 .composer {
   display: grid;
-  grid-template-columns: 44px minmax(0, 1fr) 44px 44px;
+  grid-template-columns: minmax(0, 1fr) 44px;
   gap: 8px;
   align-items: end;
   padding: 14px max(18px, calc((100% - 820px) / 2));
   border-top: 1px solid var(--line);
   background: white;
+}
+
+.composer-field {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: 44px minmax(0, 1fr) 44px;
+  align-items: end;
+  overflow: hidden;
+  border: 1px solid var(--line-strong);
+  border-radius: 24px;
+  background: var(--paper);
+}
+
+.composer-field:focus-within {
+  border-color: var(--blue);
+  box-shadow: 0 0 0 3px rgba(39, 85, 217, 0.12);
 }
 
 .attach-button,
@@ -1036,6 +1080,16 @@ button:disabled {
 
 .voice-button {
   color: var(--blue-dark);
+}
+
+.composer-field .attach-button,
+.composer-field .voice-button {
+  border: 0;
+  background: transparent;
+}
+
+.send-button {
+  border-radius: 50%;
 }
 
 .composer-recording {
@@ -1112,6 +1166,12 @@ button:disabled {
   background: var(--paper);
   color: var(--ink);
   line-height: 1.35;
+}
+
+.composer-field textarea {
+  border: 0;
+  background: transparent;
+  outline: 0;
 }
 
 .composer textarea:disabled {

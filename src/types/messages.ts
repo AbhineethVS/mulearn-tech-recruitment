@@ -10,6 +10,7 @@ export type PeerEnvelope =
   | { kind: 'chat'; id: string; text: string; sentAt: string }
   | { kind: 'ack'; id: string }
   | { kind: 'seen'; ids: string[] }
+  | { kind: 'profile'; name: string }
   | { kind: 'typing'; active: boolean }
 
 export type FileControlEnvelope =
@@ -20,6 +21,7 @@ export type FileControlEnvelope =
       name: string
       size: number
       mimeType: string
+      sentAt: string
     }
   | {
       kind: 'file_meta'
@@ -28,6 +30,7 @@ export type FileControlEnvelope =
       name: string
       size: number
       mimeType: string
+      sentAt: string
       durationMs: number
       waveform: number[]
     }
@@ -37,6 +40,7 @@ export type FileControlEnvelope =
 export type FileTransfer = {
   id: string
   category: 'file' | 'voice'
+  sentAt: string
   name: string
   size: number
   durationMs?: number
