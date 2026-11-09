@@ -23,6 +23,13 @@ export type ConnectionRoute = {
   detail: string
 }
 
+export type ConnectionQuality = {
+  rating: 'excellent' | 'good' | 'fair' | 'poor' | 'unknown'
+  label: string
+  detail: string
+  rttMs: number | null
+}
+
 type ParsedCandidate = {
   address: string
   type: string
@@ -138,22 +145,21 @@ export function classifyConnectionRoute(
   }
 }
 
-export async function detectConnectionRoute(
-  peer: RTCPeerConnection,
-): Promise<ConnectionRoute> {
-  const stats = await peer.getStats()
+type CandidatePairStats = RTCStats & {
+  localCandidateId?: string
+  remoteCandidateId?: string
+  currentRoundTripTime?: number
+}
+
+function selectedCandidatePair(stats: RTCStatsReport) {
   let selectedPairId: string | undefined
-  let fallbackPair:
-    | (RTCStats & { localCandidateId?: string; remoteCandidateId?: string })
-    | undefined
+  let fallbackPair: CandidatePairStats | undefined
 
   stats.forEach((report) => {
-    const value = report as RTCStats & {
+    const value = report as CandidatePairStats & {
       selectedCandidatePairId?: string
       state?: string
       nominated?: boolean
-      localCandidateId?: string
-      remoteCandidateId?: string
     }
     if (value.type === 'transport' && value.selectedCandidatePairId) {
       selectedPairId = value.selectedCandidatePairId
@@ -163,9 +169,57 @@ export async function detectConnectionRoute(
     }
   })
 
-  const pair = (selectedPairId ? stats.get(selectedPairId) : fallbackPair) as
-    | (RTCStats & { localCandidateId?: string; remoteCandidateId?: string })
+  return (selectedPairId ? stats.get(selectedPairId) : fallbackPair) as
+    | CandidatePairStats
     | undefined
+}
+
+export function classifyConnectionQuality(rttMs: number | null): ConnectionQuality {
+  if (rttMs === null || !Number.isFinite(rttMs)) {
+    return {
+      rating: 'unknown',
+      label: 'Measuring',
+      detail: 'The browser has not exposed a round-trip measurement yet.',
+      rttMs: null,
+    }
+  }
+  if (rttMs < 100) {
+    return {
+      rating: 'excellent',
+      label: 'Excellent',
+      detail: 'Messages should feel immediate on this route.',
+      rttMs,
+    }
+  }
+  if (rttMs < 200) {
+    return {
+      rating: 'good',
+      label: 'Good',
+      detail: 'The route has a small but comfortable network delay.',
+      rttMs,
+    }
+  }
+  if (rttMs < 400) {
+    return {
+      rating: 'fair',
+      label: 'Fair',
+      detail: 'The route is usable, but delivery may feel slightly delayed.',
+      rttMs,
+    }
+  }
+  return {
+    rating: 'poor',
+    label: 'Unstable',
+    detail: 'The route has high latency and may disconnect on network changes.',
+    rttMs,
+  }
+}
+
+export async function detectConnectionRoute(
+  peer: RTCPeerConnection,
+): Promise<ConnectionRoute> {
+  const stats = await peer.getStats()
+  const pair = selectedCandidatePair(stats)
   const local = pair?.localCandidateId
     ? (stats.get(pair.localCandidateId) as RTCStats & { candidateType?: string })
     : undefined
@@ -174,6 +228,15 @@ export async function detectConnectionRoute(
     : undefined
 
   return classifyConnectionRoute(local?.candidateType, remote?.candidateType)
+}
+
+export async function measureConnectionQuality(peer: RTCPeerConnection) {
+  const pair = selectedCandidatePair(await peer.getStats())
+  const rttMs =
+    typeof pair?.currentRoundTripTime === 'number'
+      ? Math.round(pair.currentRoundTripTime * 1000)
+      : null
+  return classifyConnectionQuality(rttMs)
 }
 
 let iceConfigurationPromise: Promise<IceConfiguration> | null = null

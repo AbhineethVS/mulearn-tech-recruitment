@@ -9,9 +9,11 @@ import {
   createPeerConnection,
   detectConnectionRoute,
   diagnoseIceFailure,
+  measureConnectionQuality,
   toCandidatePayload,
   toDescriptionPayload,
   waitForChannelBuffer,
+  type ConnectionQuality,
   type ConnectionRoute,
 } from '../lib/peer-connection'
 import { SignalClient } from '../lib/signaling'
@@ -19,9 +21,11 @@ import { MAX_VOICE_DURATION_MS } from './useVoiceRecorder'
 import type {
   ChatMessage,
   ConnectionEvent,
+  EmojiReaction,
   FileControlEnvelope,
   FileTransfer,
   PeerEnvelope,
+  ReplyReference,
 } from '../types/messages'
 
 export type SessionPhase =
@@ -48,9 +52,18 @@ function readResumeToken(roomCode: string) {
   }
 }
 
+function readPersistentResumeToken(roomCode: string) {
+  try {
+    return window.localStorage.getItem(resumeTokenKey(roomCode)) ?? undefined
+  } catch {
+    return undefined
+  }
+}
+
 function rememberRoom(roomCode: string, resumeToken: string) {
   try {
     window.sessionStorage.setItem(resumeTokenKey(roomCode), resumeToken)
+    window.localStorage.setItem(resumeTokenKey(roomCode), resumeToken)
     window.localStorage.setItem('p4pair:last-room', roomCode)
   } catch {
     // Rejoining still works normally when storage is unavailable.
@@ -60,6 +73,7 @@ function rememberRoom(roomCode: string, resumeToken: string) {
 function forgetRoom(roomCode: string) {
   try {
     window.sessionStorage.removeItem(resumeTokenKey(roomCode))
+    window.localStorage.removeItem(resumeTokenKey(roomCode))
     if (window.localStorage.getItem('p4pair:last-room') === roomCode) {
       window.localStorage.removeItem('p4pair:last-room')
     }
@@ -74,6 +88,20 @@ const eventTime = () =>
     minute: '2-digit',
     second: '2-digit',
   }).format(new Date())
+
+const REACTIONS = new Set<EmojiReaction>(['👍', '❤️', '😂', '😮', '😢', '🙏'])
+
+const isReplyReference = (value: unknown): value is ReplyReference => {
+  if (!value || typeof value !== 'object') return false
+  const reply = value as Record<string, unknown>
+  return (
+    typeof reply.id === 'string' &&
+    typeof reply.text === 'string' &&
+    reply.text.length <= 180 &&
+    typeof reply.author === 'string' &&
+    reply.author.length <= 24
+  )
+}
 
 export const isPeerEnvelope = (value: unknown): value is PeerEnvelope => {
   if (!value || typeof value !== 'object' || !('kind' in value)) return false
@@ -93,13 +121,21 @@ export const isPeerEnvelope = (value: unknown): value is PeerEnvelope => {
       item.name.trim().length <= 24
     )
   }
+  if (item.kind === 'reaction') {
+    return (
+      typeof item.messageId === 'string' &&
+      typeof item.emoji === 'string' &&
+      REACTIONS.has(item.emoji as EmojiReaction)
+    )
+  }
   if (item.kind === 'typing') return typeof item.active === 'boolean'
   return (
     item.kind === 'chat' &&
     typeof item.id === 'string' &&
     typeof item.text === 'string' &&
     item.text.length <= MAX_MESSAGE_LENGTH &&
-    typeof item.sentAt === 'string'
+    typeof item.sentAt === 'string' &&
+    (item.replyTo === undefined || isReplyReference(item.replyTo))
   )
 }
 
@@ -144,6 +180,7 @@ export function usePeerSession() {
   const [error, setError] = useState('')
   const [failureHelp, setFailureHelp] = useState('')
   const [route, setRoute] = useState<ConnectionRoute | null>(null)
+  const [quality, setQuality] = useState<ConnectionQuality | null>(null)
   const [peerTyping, setPeerTyping] = useState(false)
   const [displayName, setDisplayNameState] = useState(() => {
     try {
@@ -181,6 +218,9 @@ export function usePeerSession() {
   const intentionalCloseRef = useRef(false)
   const phaseRef = useRef<SessionPhase>('idle')
   const displayNameRef = useRef(displayName)
+  const qualityTimerRef = useRef<number | null>(null)
+  const pendingRoomCodeRef = useRef('')
+  const resumeAttemptedRef = useRef(false)
 
   const changePhase = useCallback((next: SessionPhase) => {
     phaseRef.current = next
@@ -227,6 +267,8 @@ export function usePeerSession() {
               sentAt: envelope.sentAt,
               direction: 'incoming',
               status: 'delivered',
+              replyTo: envelope.replyTo,
+              reactions: {},
             },
           ])
           chatChannelRef.current?.send(JSON.stringify({ kind: 'ack', id: envelope.id }))
@@ -254,6 +296,17 @@ export function usePeerSession() {
           )
         } else if (envelope.kind === 'profile') {
           setPeerName(envelope.name.trim())
+        } else if (envelope.kind === 'reaction') {
+          setMessages((current) =>
+            current.map((message) =>
+              message.id === envelope.messageId
+                ? {
+                    ...message,
+                    reactions: { ...message.reactions, peer: envelope.emoji },
+                  }
+                : message,
+            ),
+          )
         } else {
           setPeerTyping(envelope.active)
         }
@@ -371,11 +424,14 @@ export function usePeerSession() {
     chatChannelRef.current = null
     fileChannelRef.current = null
     peerRef.current = null
+    if (qualityTimerRef.current !== null) window.clearInterval(qualityTimerRef.current)
+    qualityTimerRef.current = null
     chatChannel?.close()
     fileChannel?.close()
     peer?.close()
     turnConfiguredRef.current = false
     setRoute(null)
+    setQuality(null)
     queuedCandidatesRef.current = []
     localCandidatesRef.current = []
     remoteCandidatesRef.current = []
@@ -422,6 +478,16 @@ export function usePeerSession() {
             setRoute(detectedRoute)
             addEvent('Route selected', detectedRoute.detail, 'success')
           })
+          const updateQuality = () => {
+            void measureConnectionQuality(peer).then((measuredQuality) => {
+              if (peerRef.current === peer) setQuality(measuredQuality)
+            })
+          }
+          if (qualityTimerRef.current !== null) {
+            window.clearInterval(qualityTimerRef.current)
+          }
+          updateQuality()
+          qualityTimerRef.current = window.setInterval(updateQuality, 3_000)
         } else if (peer.connectionState === 'disconnected') {
           changePhase('reconnecting')
           addEvent('Route interrupted', 'The browser is attempting to recover the connection.', 'danger')
@@ -477,6 +543,8 @@ export function usePeerSession() {
         setRoomCode(message.roomCode)
         setPeerId(message.peerId)
         rememberRoom(message.roomCode, message.resumeToken)
+        pendingRoomCodeRef.current = message.roomCode
+        resumeAttemptedRef.current = false
         setError('')
         changePhase(message.type === 'room_created' ? 'waiting' : 'connecting')
         addEvent(
@@ -540,6 +608,27 @@ export function usePeerSession() {
         return
       }
       if (message.type === 'error') {
+        const targetRoom = roomCode || pendingRoomCodeRef.current
+        if (message.code === 'room_full' && targetRoom && !resumeAttemptedRef.current) {
+          const resumeToken = readPersistentResumeToken(targetRoom)
+          if (resumeToken) {
+            resumeAttemptedRef.current = true
+            setError('')
+            setFailureHelp('')
+            changePhase('reconnecting')
+            addEvent(
+              'Reclaiming previous slot',
+              'This browser is replacing its abandoned room session.',
+              'active',
+            )
+            signalRef.current?.send({
+              type: 'join_room',
+              roomCode: targetRoom,
+              resumeToken,
+            })
+            return
+          }
+        }
         setError(message.message)
         if (message.code === 'room_full') {
           setFailureHelp(
@@ -614,6 +703,8 @@ export function usePeerSession() {
   const createRoom = useCallback(async () => {
     resetContent()
     closePeer()
+    pendingRoomCodeRef.current = ''
+    resumeAttemptedRef.current = false
     changePhase('signaling')
     try {
       const signal = await openSignal()
@@ -632,10 +723,12 @@ export function usePeerSession() {
       }
       resetContent()
       closePeer()
+      pendingRoomCodeRef.current = code
       changePhase('signaling')
       try {
         const signal = await openSignal()
         const resumeToken = readResumeToken(code)
+        resumeAttemptedRef.current = Boolean(resumeToken)
         signal.send({
           type: 'join_room',
           roomCode: code,
@@ -654,6 +747,8 @@ export function usePeerSession() {
     signalRef.current = null
     closePeer()
     forgetRoom(roomCode)
+    pendingRoomCodeRef.current = ''
+    resumeAttemptedRef.current = false
     setRoomCode('')
     setPeerId('')
     setError('')
@@ -676,6 +771,8 @@ export function usePeerSession() {
     try {
       const signal = await openSignal()
       const resumeToken = readResumeToken(roomCode)
+      pendingRoomCodeRef.current = roomCode
+      resumeAttemptedRef.current = Boolean(resumeToken)
       signal.send({
         type: 'join_room',
         roomCode,
@@ -686,15 +783,16 @@ export function usePeerSession() {
     }
   }, [addEvent, changePhase, closePeer, openSignal, roomCode])
 
-  const sendMessage = useCallback((rawText: string) => {
+  const sendMessage = useCallback((rawText: string, replyTo?: ReplyReference) => {
     const text = rawText.trim()
     const channel = chatChannelRef.current
     if (!text || text.length > MAX_MESSAGE_LENGTH || channel?.readyState !== 'open') return false
-    const envelope: PeerEnvelope = {
+    const envelope: Extract<PeerEnvelope, { kind: 'chat' }> = {
       kind: 'chat',
       id: crypto.randomUUID(),
       text,
       sentAt: new Date().toISOString(),
+      ...(replyTo ? { replyTo } : {}),
     }
     channel.send(JSON.stringify(envelope))
     setMessages((current) => [
@@ -705,9 +803,24 @@ export function usePeerSession() {
         sentAt: envelope.sentAt,
         direction: 'outgoing',
         status: 'sent',
+        replyTo: envelope.replyTo,
+        reactions: {},
       },
     ])
     return true
+  }, [])
+
+  const reactToMessage = useCallback((messageId: string, emoji: EmojiReaction) => {
+    const channel = chatChannelRef.current
+    if (channel?.readyState !== 'open') return
+    channel.send(JSON.stringify({ kind: 'reaction', messageId, emoji } satisfies PeerEnvelope))
+    setMessages((current) =>
+      current.map((message) =>
+        message.id === messageId
+          ? { ...message, reactions: { ...message.reactions, local: emoji } }
+          : message,
+      ),
+    )
   }, [])
 
   const sendTyping = useCallback((active: boolean) => {
@@ -886,6 +999,7 @@ export function usePeerSession() {
     error,
     failureHelp,
     route,
+    quality,
     peerTyping,
     displayName,
     peerName,
@@ -895,6 +1009,7 @@ export function usePeerSession() {
     leave,
     retry,
     sendMessage,
+    reactToMessage,
     sendTyping,
     setDisplayName,
     sendFile,

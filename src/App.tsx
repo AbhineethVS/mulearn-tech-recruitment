@@ -6,6 +6,7 @@ import {
   Copy,
   Download,
   FileUp,
+  Gauge,
   Link2,
   LockKeyhole,
   MessageSquareText,
@@ -15,7 +16,9 @@ import {
   Play,
   Radio,
   RefreshCw,
+  Reply,
   ShieldCheck,
+  SmilePlus,
   Square,
   Trash2,
   Unplug,
@@ -38,7 +41,12 @@ import { usePeerSession, type SessionPhase } from './hooks/usePeerSession'
 import { usePwa } from './hooks/usePwa'
 import { useVoiceRecorder } from './hooks/useVoiceRecorder'
 import type { ConnectionRoute } from './lib/peer-connection'
-import type { FileTransfer } from './types/messages'
+import type {
+  ChatMessage,
+  EmojiReaction,
+  FileTransfer,
+  ReplyReference,
+} from './types/messages'
 import './styles.css'
 
 const phaseCopy: Record<
@@ -65,6 +73,8 @@ const formatDuration = (durationMs: number) => {
   const totalSeconds = Math.max(0, Math.round(durationMs / 1000))
   return `${Math.floor(totalSeconds / 60)}:${String(totalSeconds % 60).padStart(2, '0')}`
 }
+
+const REACTION_OPTIONS: EmojiReaction[] = ['👍', '❤️', '😂', '😮', '😢', '🙏']
 
 function Mark() {
   return (
@@ -229,11 +239,15 @@ function ConnectionRail({
   route,
   localName,
   peerName,
+  detailsOpen,
+  onToggleDetails,
 }: {
   phase: SessionPhase
   route: ConnectionRoute | null
   localName: string
   peerName: string
+  detailsOpen: boolean
+  onToggleDetails: () => void
 }) {
   const status = phaseCopy[phase]
   const label = phase === 'connected' && route ? route.label : status.label
@@ -245,10 +259,16 @@ function ConnectionRail({
       </div>
       <div className="rail-path">
         <span />
-        <div className="rail-status" role="status" aria-live="polite">
+        <button
+          className="rail-status"
+          type="button"
+          onClick={onToggleDetails}
+          aria-expanded={detailsOpen}
+          aria-controls="connection-details"
+        >
           {phase === 'connected' ? <Wifi size={15} /> : <Activity size={15} />}
           <b>{label}</b>
-        </div>
+        </button>
         <span />
       </div>
       <div className="rail-peer rail-peer-right">
@@ -256,6 +276,70 @@ function ConnectionRail({
         <span className="peer-node"><UserRound size={17} /></span>
       </div>
     </section>
+  )
+}
+
+function ConnectionDetails({
+  session,
+  onClose,
+}: {
+  session: ReturnType<typeof usePeerSession>
+  onClose: () => void
+}) {
+  const route = session.route
+  const quality = session.quality
+  return (
+    <div className="connection-details-backdrop" onClick={onClose}>
+      <section
+        id="connection-details"
+        className="connection-details"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="connection-details-title"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <header>
+          <div>
+            <span className="details-icon"><Wifi size={18} /></span>
+            <span>
+              <small>Selected WebRTC route</small>
+              <h2 id="connection-details-title">{route?.label ?? 'Connecting'}</h2>
+            </span>
+          </div>
+          <button type="button" onClick={onClose} aria-label="Close connection details" autoFocus>
+            <X size={18} />
+          </button>
+        </header>
+
+        <p className="route-detail">
+          {route?.detail ?? 'The browser is still selecting a network route.'}
+        </p>
+
+        <div className={`quality-card quality-${quality?.rating ?? 'unknown'}`}>
+          <Gauge size={20} />
+          <div>
+            <small>Connection quality</small>
+            <b>{quality?.label ?? 'Measuring'}</b>
+            <span>{quality?.detail ?? 'Waiting for a round-trip measurement.'}</span>
+          </div>
+          <strong>{quality?.rttMs === null || quality?.rttMs === undefined ? '—' : `${quality.rttMs} ms`}</strong>
+        </div>
+
+        <div className="details-encryption">
+          <LockKeyhole size={15} />
+          {route?.kind === 'turn'
+            ? 'Relayed through TURN and encrypted in transit'
+            : 'Direct and encrypted in transit'}
+        </div>
+
+        <dl className="details-facts">
+          <div><dt>Transport</dt><dd>WebRTC / SCTP</dd></div>
+          <div><dt>Signaling</dt><dd>WebSocket</dd></div>
+          <div><dt>Route</dt><dd>{route?.label ?? 'Pending'}</dd></div>
+          <div><dt>Peer ID</dt><dd>{session.peerId.slice(0, 8) || 'Pending'}</dd></div>
+        </dl>
+      </section>
+    </div>
   )
 }
 
@@ -394,6 +478,81 @@ function MessageReceipt({ status }: { status: 'sent' | 'delivered' | 'seen' }) {
   )
 }
 
+function MessageItem({
+  message,
+  peerName,
+  reactionOpen,
+  onReply,
+  onToggleReactions,
+  onReact,
+}: {
+  message: ChatMessage
+  peerName: string
+  reactionOpen: boolean
+  onReply: () => void
+  onToggleReactions: () => void
+  onReact: (emoji: EmojiReaction) => void
+}) {
+  return (
+    <article className={`message message-${message.direction}`}>
+      {message.replyTo && (
+        <blockquote className="message-reply">
+          <b>{message.replyTo.author}</b>
+          <span>{message.replyTo.text}</span>
+        </blockquote>
+      )}
+      <p>{message.text}</p>
+      <footer>
+        <time dateTime={message.sentAt}>
+          {new Date(message.sentAt).toLocaleTimeString([], {
+            hour: '2-digit',
+            minute: '2-digit',
+          })}
+        </time>
+        {message.direction === 'outgoing' && <MessageReceipt status={message.status} />}
+      </footer>
+      {(message.reactions.local || message.reactions.peer) && (
+        <div className="message-reactions" aria-label="Message reactions">
+          {message.reactions.local && (
+            <span title="Your reaction">{message.reactions.local}</span>
+          )}
+          {message.reactions.peer && (
+            <span title={`${peerName || 'Peer'} reacted`}>{message.reactions.peer}</span>
+          )}
+        </div>
+      )}
+      <div className="message-tools">
+        <button type="button" onClick={onReply}>
+          <Reply size={13} />
+          Reply
+        </button>
+        <button
+          type="button"
+          onClick={onToggleReactions}
+          aria-expanded={reactionOpen}
+          aria-label="Add emoji reaction"
+        >
+          <SmilePlus size={14} />
+        </button>
+      </div>
+      {reactionOpen && (
+        <div className="reaction-picker" role="group" aria-label="Choose a reaction">
+          {REACTION_OPTIONS.map((emoji) => (
+            <button
+              type="button"
+              onClick={() => onReact(emoji)}
+              aria-label={`React with ${emoji}`}
+              key={emoji}
+            >
+              {emoji}
+            </button>
+          ))}
+        </div>
+      )}
+    </article>
+  )
+}
+
 function ChatWorkspace({
   session,
   pwa,
@@ -404,10 +563,12 @@ function ChatWorkspace({
   const [draft, setDraft] = useState('')
   const [copyState, setCopyState] = useState<'idle' | 'copied'>('idle')
   const [fileError, setFileError] = useState('')
+  const [detailsOpen, setDetailsOpen] = useState(false)
+  const [replyingTo, setReplyingTo] = useState<ChatMessage | null>(null)
+  const [reactionTarget, setReactionTarget] = useState<string | null>(null)
   const messageEndRef = useRef<HTMLDivElement>(null)
   const typingTimerRef = useRef<number | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
-  const status = phaseCopy[session.phase]
   const handleVoiceRecorded = useCallback(
     (recording: { blob: Blob; durationMs: number; waveform: number[] }) => {
       setFileError('')
@@ -452,7 +613,7 @@ function ChatWorkspace({
 
   useEffect(() => {
     messageEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' })
-  }, [session.messages, session.transfers, session.peerTyping])
+  }, [reactionTarget, session.messages, session.transfers, session.peerTyping])
 
   useEffect(() => {
     const warn = (event: BeforeUnloadEvent) => {
@@ -466,6 +627,15 @@ function ChatWorkspace({
     if (session.phase !== 'connected' && voiceRecording) cancelVoice()
   }, [cancelVoice, session.phase, voiceRecording])
 
+  useEffect(() => {
+    if (!detailsOpen) return
+    const closeOnEscape = (event: globalThis.KeyboardEvent) => {
+      if (event.key === 'Escape') setDetailsOpen(false)
+    }
+    window.addEventListener('keydown', closeOnEscape)
+    return () => window.removeEventListener('keydown', closeOnEscape)
+  }, [detailsOpen])
+
   const copyInvite = async () => {
     await navigator.clipboard.writeText(inviteUrl)
     setCopyState('copied')
@@ -473,8 +643,19 @@ function ChatWorkspace({
   }
 
   const submitMessage = () => {
-    if (session.sendMessage(draft)) {
+    const replyReference: ReplyReference | undefined = replyingTo
+      ? {
+          id: replyingTo.id,
+          text: replyingTo.text.slice(0, 180),
+          author:
+            replyingTo.direction === 'outgoing'
+              ? session.displayName.trim() || 'You'
+              : session.peerName || 'Peer',
+        }
+      : undefined
+    if (session.sendMessage(draft, replyReference)) {
       setDraft('')
+      setReplyingTo(null)
       session.sendTyping(false)
     }
   }
@@ -537,28 +718,15 @@ function ChatWorkspace({
         route={session.route}
         localName={session.displayName.trim()}
         peerName={session.peerName}
+        detailsOpen={detailsOpen}
+        onToggleDetails={() => setDetailsOpen((current) => !current)}
       />
+      {detailsOpen && (
+        <ConnectionDetails session={session} onClose={() => setDetailsOpen(false)} />
+      )}
 
       <main className="chat-layout">
         <section className="conversation" aria-label="Peer conversation">
-          <header className="conversation-header">
-            <div>
-              <span className={`status-light tone-${status.tone}`} />
-              <span>
-                <b>{session.phase === 'connected' && session.route ? session.route.label : status.label}</b>
-                <small>{session.phase === 'connected' && session.route ? session.route.detail : status.detail}</small>
-              </span>
-            </div>
-            <span className="privacy-note">
-              <LockKeyhole size={14} />
-              {session.route?.kind === 'turn'
-                ? 'Relayed and encrypted in transit'
-                : session.route
-                  ? 'Direct and encrypted in transit'
-                  : 'Encrypted in transit'}
-            </span>
-          </header>
-
           <div className="message-list" aria-live="polite">
             {timeline.length === 0 && (
               <div className="conversation-empty">
@@ -587,23 +755,23 @@ function ChatWorkspace({
 
             {timeline.map((entry) =>
               entry.kind === 'message' ? (
-                <article
-                  className={`message message-${entry.message.direction}`}
+                <MessageItem
                   key={entry.id}
-                >
-                  <p>{entry.message.text}</p>
-                  <footer>
-                    <time dateTime={entry.message.sentAt}>
-                      {new Date(entry.message.sentAt).toLocaleTimeString([], {
-                        hour: '2-digit',
-                        minute: '2-digit',
-                      })}
-                    </time>
-                    {entry.message.direction === 'outgoing' && (
-                      <MessageReceipt status={entry.message.status} />
-                    )}
-                  </footer>
-                </article>
+                  message={entry.message}
+                  peerName={session.peerName}
+                  reactionOpen={reactionTarget === entry.id}
+                  onReply={() => {
+                    setReplyingTo(entry.message)
+                    setReactionTarget(null)
+                  }}
+                  onToggleReactions={() =>
+                    setReactionTarget((current) => (current === entry.id ? null : entry.id))
+                  }
+                  onReact={(emoji) => {
+                    session.reactToMessage(entry.id, emoji)
+                    setReactionTarget(null)
+                  }}
+                />
               ) : entry.transfer.category === 'voice' ? (
                 <VoiceNoteItem key={entry.id} transfer={entry.transfer} />
               ) : (
@@ -648,6 +816,18 @@ function ChatWorkspace({
               hidden
               onChange={(event) => void chooseFile(event.target.files?.[0])}
             />
+            {replyingTo && !voice.recording && (
+              <div className="composer-reply">
+                <Reply size={15} />
+                <span>
+                  <b>Replying to {replyingTo.direction === 'outgoing' ? 'yourself' : session.peerName || 'peer'}</b>
+                  <small>{replyingTo.text}</small>
+                </span>
+                <button type="button" onClick={() => setReplyingTo(null)} aria-label="Cancel reply">
+                  <X size={16} />
+                </button>
+              </div>
+            )}
             {voice.recording ? (
               <>
                 <button
@@ -702,7 +882,10 @@ function ChatWorkspace({
                   <button
                     className="voice-button"
                     type="button"
-                    onClick={() => void voice.start()}
+                  onClick={() => {
+                    setReplyingTo(null)
+                    void voice.start()
+                  }}
                     disabled={session.phase !== 'connected'}
                     aria-label="Record a voice message"
                     title="Record voice message"
@@ -735,12 +918,6 @@ function ChatWorkspace({
               </li>
             ))}
           </ol>
-          <dl className="connection-facts">
-            <div><dt>Transport</dt><dd>WebRTC / SCTP</dd></div>
-            <div><dt>Signaling</dt><dd>WebSocket</dd></div>
-            <div><dt>Route</dt><dd>{session.route?.label ?? 'Pending'}</dd></div>
-            <div><dt>Peer ID</dt><dd title={session.peerId}>{session.peerId.slice(0, 8) || 'Pending'}</dd></div>
-          </dl>
         </aside>
       </main>
     </div>

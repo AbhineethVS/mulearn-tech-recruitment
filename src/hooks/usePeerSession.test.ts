@@ -24,3 +24,19 @@ describe('peer profiles', () => {
     expect(isPeerEnvelope({ kind: 'profile', name: 'x'.repeat(25) })).toBe(false)
   })
 })
+
+describe('replies and reactions', () => {
+  it('accepts bounded replies and the supported reaction set', () => {
+    expect(
+      isPeerEnvelope({
+        kind: 'chat',
+        id: 'reply',
+        text: 'Got it',
+        sentAt: new Date().toISOString(),
+        replyTo: { id: 'original', text: 'Are you there?', author: 'Peer' },
+      }),
+    ).toBe(true)
+    expect(isPeerEnvelope({ kind: 'reaction', messageId: 'reply', emoji: '❤️' })).toBe(true)
+    expect(isPeerEnvelope({ kind: 'reaction', messageId: 'reply', emoji: '🚀' })).toBe(false)
+  })
+})

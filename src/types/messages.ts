@@ -1,16 +1,30 @@
+export type EmojiReaction = '👍' | '❤️' | '😂' | '😮' | '😢' | '🙏'
+
+export type ReplyReference = {
+  id: string
+  text: string
+  author: string
+}
+
 export type ChatMessage = {
   id: string
   text: string
   sentAt: string
   direction: 'incoming' | 'outgoing'
   status: 'sent' | 'delivered' | 'seen'
+  replyTo?: ReplyReference
+  reactions: {
+    local?: EmojiReaction
+    peer?: EmojiReaction
+  }
 }
 
 export type PeerEnvelope =
-  | { kind: 'chat'; id: string; text: string; sentAt: string }
+  | { kind: 'chat'; id: string; text: string; sentAt: string; replyTo?: ReplyReference }
   | { kind: 'ack'; id: string }
   | { kind: 'seen'; ids: string[] }
   | { kind: 'profile'; name: string }
+  | { kind: 'reaction'; messageId: string; emoji: EmojiReaction }
   | { kind: 'typing'; active: boolean }
 
 export type FileControlEnvelope =

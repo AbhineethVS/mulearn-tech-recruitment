@@ -28,6 +28,9 @@ token survives a reload without leaking into a second same-browser tab. If a mob
 reloads or resumes before its old WebSocket has timed out, presenting the token atomically replaces
 the stale socket instead of producing a false `room_full` error. A browser without the token still
 cannot enter a two-person room. Heartbeats remove abandoned sockets within about 30 seconds.
+The latest token is also retained as a device-local fallback: a newly opened tab attempts a normal
+join first and presents that fallback only after the full room rejects it. This preserves ordinary
+two-tab testing while allowing a restarted mobile browser to reclaim its own stale membership.
 
 ## Code boundaries
 
@@ -42,11 +45,12 @@ cannot enter a two-person room. Heartbeats remove abandoned sockets within about
 
 ## Data channels
 
-`chat` is a reliable ordered channel carrying JSON envelopes for text, peer display names,
-delivery acknowledgements, seen receipts, and typing state. Display names therefore remain peer
-content and are not stored by signaling. One tick means the local browser wrote the message to the
-open data channel, two ticks mean the peer acknowledged it, and blue ticks mean the peer displayed
-the conversation in a visible, focused page.
+`chat` is a reliable ordered channel carrying JSON envelopes for text, quoted replies, emoji
+reactions, peer display names, delivery acknowledgements, seen receipts, and typing state. Display
+names and message interactions therefore remain peer content and are not stored by signaling. One
+tick means the local browser wrote the message to the open data channel, two ticks mean the peer
+acknowledged it, and blue ticks mean the peer displayed the conversation in a visible, focused
+page.
 
 `files` is a separate reliable ordered channel so binary buffering does not share the chat
 protocol. Files are capped at 25 MB, split into 16 KiB binary chunks, and paused when the channel
@@ -57,7 +61,9 @@ the interface. Audio bytes never enter signaling or the service-worker cache.
 After ICE connects, the client reads the selected candidate pair through `RTCPeerConnection`
 statistics. Host-only pairs are shown as direct host routes, server-reflexive pairs as direct STUN
 routes, and relay candidates as TURN routes. This keeps the UI accurate instead of calling every
-WebRTC session physically direct.
+WebRTC session physically direct. The same statistics provide the selected pair's current
+round-trip time, which is classified as excellent, good, fair, or unstable and displayed in the
+route-details dialog.
 
 ## PWA boundary
 

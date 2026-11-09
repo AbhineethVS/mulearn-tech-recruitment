@@ -149,4 +149,10 @@ replace its own stale socket without opening the room to a third person. Heartbe
 so genuinely abandoned sockets are removed within about 30 seconds. The surviving peer resets its
 old `RTCPeerConnection` and creates a fresh offer when the browser returns.
 
+Some mobile browsers reopen a suspended page as a new tab, which has no session storage. For that
+case, the device also retains the latest room token in local storage. A new tab first attempts an
+ordinary join; only after the room reports full does it use that token to reclaim the matching
+stale slot. This ordering keeps same-browser two-tab testing intact and does not let the token
+claim another device's slot.
+
 The interface also explains a genuine room-full response separately from an ICE route failure.

@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { classifyConnectionRoute, diagnoseIceFailure } from './peer-connection'
+import {
+  classifyConnectionQuality,
+  classifyConnectionRoute,
+  diagnoseIceFailure,
+} from './peer-connection'
 
 describe('ICE failure diagnosis', () => {
   it('identifies likely isolation when both peers advertise the same private subnet', () => {
@@ -39,5 +43,15 @@ describe('selected connection route', () => {
   it('distinguishes STUN-discovered and host-only direct routes', () => {
     expect(classifyConnectionRoute('host', 'srflx').kind).toBe('stun')
     expect(classifyConnectionRoute('host', 'host').kind).toBe('host')
+  })
+})
+
+describe('connection quality', () => {
+  it('classifies round-trip latency without overstating missing measurements', () => {
+    expect(classifyConnectionQuality(45).rating).toBe('excellent')
+    expect(classifyConnectionQuality(150).rating).toBe('good')
+    expect(classifyConnectionQuality(280).rating).toBe('fair')
+    expect(classifyConnectionQuality(650).rating).toBe('poor')
+    expect(classifyConnectionQuality(null).rating).toBe('unknown')
   })
 })
