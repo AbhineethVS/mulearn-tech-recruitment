@@ -13,6 +13,7 @@ over WebRTC data channels.
 - Delivery acknowledgements and typing state sent peer to peer
 - Direct files up to 25 MB with chunking, backpressure, progress, cancellation, and downloads
 - Local connection timeline that makes negotiation understandable during a demo
+- Selected-route proof: direct host, direct STUN, or relayed TURN
 - STUN-backed ICE discovery for common cross-network connections
 - Responsive, keyboard-accessible interface
 

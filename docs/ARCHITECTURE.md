@@ -41,6 +41,11 @@ and typing state. `files` is a separate reliable ordered channel so file bufferi
 the chat protocol. Files are capped at 25 MB, split into 16 KiB binary chunks, and paused when the
 channel buffer crosses its threshold.
 
+After ICE connects, the client reads the selected candidate pair through `RTCPeerConnection`
+statistics. Host-only pairs are shown as direct host routes, server-reflexive pairs as direct STUN
+routes, and relay candidates as TURN routes. This keeps the UI accurate instead of calling every
+WebRTC session physically direct.
+
 ## Network traversal
 
 The default ICE configuration uses public STUN servers. STUN lets many peers discover a usable

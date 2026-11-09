@@ -28,6 +28,7 @@ import {
 } from 'react'
 import { normalizeRoomCode } from '../shared/protocol'
 import { usePeerSession, type SessionPhase } from './hooks/usePeerSession'
+import type { ConnectionRoute } from './lib/peer-connection'
 import type { FileTransfer } from './types/messages'
 import './styles.css'
 
@@ -167,8 +168,15 @@ function Landing({
   )
 }
 
-function ConnectionRail({ phase }: { phase: SessionPhase }) {
+function ConnectionRail({
+  phase,
+  route,
+}: {
+  phase: SessionPhase
+  route: ConnectionRoute | null
+}) {
   const status = phaseCopy[phase]
+  const label = phase === 'connected' && route ? route.label : status.label
   return (
     <section className={`connection-rail tone-${status.tone}`} aria-label="Connection route">
       <div className="rail-peer">
@@ -179,7 +187,7 @@ function ConnectionRail({ phase }: { phase: SessionPhase }) {
         <span />
         <div className="rail-status" role="status" aria-live="polite">
           {phase === 'connected' ? <Wifi size={15} /> : <Activity size={15} />}
-          <b>{status.label}</b>
+          <b>{label}</b>
         </div>
         <span />
       </div>
@@ -320,16 +328,26 @@ function ChatWorkspace({ session }: { session: ReturnType<typeof usePeerSession>
         </button>
       </header>
 
-      <ConnectionRail phase={session.phase} />
+      <ConnectionRail phase={session.phase} route={session.route} />
 
       <main className="chat-layout">
         <section className="conversation" aria-label="Peer conversation">
           <header className="conversation-header">
             <div>
               <span className={`status-light tone-${status.tone}`} />
-              <span><b>{status.label}</b><small>{status.detail}</small></span>
+              <span>
+                <b>{session.phase === 'connected' && session.route ? session.route.label : status.label}</b>
+                <small>{session.phase === 'connected' && session.route ? session.route.detail : status.detail}</small>
+              </span>
             </div>
-            <span className="privacy-note"><LockKeyhole size={14} /> Direct and encrypted in transit</span>
+            <span className="privacy-note">
+              <LockKeyhole size={14} />
+              {session.route?.kind === 'turn'
+                ? 'Relayed and encrypted in transit'
+                : session.route
+                  ? 'Direct and encrypted in transit'
+                  : 'Encrypted in transit'}
+            </span>
           </header>
 
           <div className="message-list" aria-live="polite">
@@ -454,6 +472,7 @@ function ChatWorkspace({ session }: { session: ReturnType<typeof usePeerSession>
           <dl className="connection-facts">
             <div><dt>Transport</dt><dd>WebRTC / SCTP</dd></div>
             <div><dt>Signaling</dt><dd>WebSocket</dd></div>
+            <div><dt>Route</dt><dd>{session.route?.label ?? 'Pending'}</dd></div>
             <div><dt>Peer ID</dt><dd title={session.peerId}>{session.peerId.slice(0, 8) || 'Pending'}</dd></div>
           </dl>
         </aside>

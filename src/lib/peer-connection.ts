@@ -17,6 +17,12 @@ export type IceFailureDiagnosis = {
   detail: string
 }
 
+export type ConnectionRoute = {
+  kind: 'host' | 'stun' | 'turn' | 'unknown'
+  label: string
+  detail: string
+}
+
 type ParsedCandidate = {
   address: string
   type: string
@@ -97,6 +103,77 @@ export function diagnoseIceFailure({
     detail:
       'ICE tested the available direct and TURN routes without selecting a pair. Retry once, then verify the TURN credentials and network firewall rules.',
   }
+}
+
+export function classifyConnectionRoute(
+  localType?: string,
+  remoteType?: string,
+): ConnectionRoute {
+  const types = new Set([localType, remoteType].filter(Boolean))
+  if (types.has('relay')) {
+    return {
+      kind: 'turn',
+      label: 'Relayed · TURN',
+      detail: 'WebRTC is encrypted, but TURN is relaying packets because no direct route worked.',
+    }
+  }
+  if (types.has('srflx') || types.has('prflx')) {
+    return {
+      kind: 'stun',
+      label: 'Direct · STUN',
+      detail: 'The peers connected directly through NAT using a discovered public route.',
+    }
+  }
+  if (types.has('host')) {
+    return {
+      kind: 'host',
+      label: 'Direct · Host route',
+      detail: 'The peers connected directly using local-network or native IPv6 addresses.',
+    }
+  }
+  return {
+    kind: 'unknown',
+    label: 'WebRTC connected',
+    detail: 'The data channel is open, but this browser did not expose the selected route type.',
+  }
+}
+
+export async function detectConnectionRoute(
+  peer: RTCPeerConnection,
+): Promise<ConnectionRoute> {
+  const stats = await peer.getStats()
+  let selectedPairId: string | undefined
+  let fallbackPair:
+    | (RTCStats & { localCandidateId?: string; remoteCandidateId?: string })
+    | undefined
+
+  stats.forEach((report) => {
+    const value = report as RTCStats & {
+      selectedCandidatePairId?: string
+      state?: string
+      nominated?: boolean
+      localCandidateId?: string
+      remoteCandidateId?: string
+    }
+    if (value.type === 'transport' && value.selectedCandidatePairId) {
+      selectedPairId = value.selectedCandidatePairId
+    }
+    if (value.type === 'candidate-pair' && value.state === 'succeeded' && value.nominated) {
+      fallbackPair = value
+    }
+  })
+
+  const pair = (selectedPairId ? stats.get(selectedPairId) : fallbackPair) as
+    | (RTCStats & { localCandidateId?: string; remoteCandidateId?: string })
+    | undefined
+  const local = pair?.localCandidateId
+    ? (stats.get(pair.localCandidateId) as RTCStats & { candidateType?: string })
+    : undefined
+  const remote = pair?.remoteCandidateId
+    ? (stats.get(pair.remoteCandidateId) as RTCStats & { candidateType?: string })
+    : undefined
+
+  return classifyConnectionRoute(local?.candidateType, remote?.candidateType)
 }
 
 let iceConfigurationPromise: Promise<IceConfiguration> | null = null

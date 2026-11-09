@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { diagnoseIceFailure } from './peer-connection'
+import { classifyConnectionRoute, diagnoseIceFailure } from './peer-connection'
 
 describe('ICE failure diagnosis', () => {
   it('identifies likely isolation when both peers advertise the same private subnet', () => {
@@ -25,5 +25,19 @@ describe('ICE failure diagnosis', () => {
     })
 
     expect(diagnosis.title).toBe('The direct route is blocked')
+  })
+})
+
+describe('selected connection route', () => {
+  it('labels relay candidates as TURN even when the other side is host', () => {
+    expect(classifyConnectionRoute('relay', 'host')).toMatchObject({
+      kind: 'turn',
+      label: 'Relayed · TURN',
+    })
+  })
+
+  it('distinguishes STUN-discovered and host-only direct routes', () => {
+    expect(classifyConnectionRoute('host', 'srflx').kind).toBe('stun')
+    expect(classifyConnectionRoute('host', 'host').kind).toBe('host')
   })
 })

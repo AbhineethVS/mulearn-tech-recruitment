@@ -7,10 +7,12 @@ import {
 } from '../../shared/protocol'
 import {
   createPeerConnection,
+  detectConnectionRoute,
   diagnoseIceFailure,
   toCandidatePayload,
   toDescriptionPayload,
   waitForChannelBuffer,
+  type ConnectionRoute,
 } from '../lib/peer-connection'
 import { SignalClient } from '../lib/signaling'
 import type {
@@ -82,6 +84,7 @@ export function usePeerSession() {
   const [events, setEvents] = useState<ConnectionEvent[]>([])
   const [error, setError] = useState('')
   const [failureHelp, setFailureHelp] = useState('')
+  const [route, setRoute] = useState<ConnectionRoute | null>(null)
   const [peerTyping, setPeerTyping] = useState(false)
 
   const signalRef = useRef<SignalClient | null>(null)
@@ -250,6 +253,7 @@ export function usePeerSession() {
     fileChannelRef.current = null
     peerRef.current = null
     turnConfiguredRef.current = false
+    setRoute(null)
     queuedCandidatesRef.current = []
     localCandidatesRef.current = []
     remoteCandidatesRef.current = []
@@ -289,6 +293,11 @@ export function usePeerSession() {
       peer.addEventListener('connectionstatechange', () => {
         if (peer.connectionState === 'connected') {
           changePhase('connected')
+          void detectConnectionRoute(peer).then((detectedRoute) => {
+            if (peerRef.current !== peer) return
+            setRoute(detectedRoute)
+            addEvent('Route selected', detectedRoute.detail, 'success')
+          })
         } else if (peer.connectionState === 'disconnected') {
           changePhase('reconnecting')
           addEvent('Route interrupted', 'The browser is attempting to recover the connection.', 'danger')
@@ -631,6 +640,7 @@ export function usePeerSession() {
     events,
     error,
     failureHelp,
+    route,
     peerTyping,
     maxFileSize: MAX_FILE_SIZE,
     createRoom,
