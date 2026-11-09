@@ -470,8 +470,9 @@ button:disabled {
 
 .workspace-shell {
   display: grid;
-  min-height: 100vh;
-  min-height: 100dvh;
+  height: 100vh;
+  height: 100dvh;
+  min-height: 0;
   grid-template-rows: 70px 82px minmax(0, 1fr);
   overflow: hidden;
   background: var(--canvas);
