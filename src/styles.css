@@ -1811,11 +1811,15 @@ button:disabled {
     padding: 0 13px;
   }
 
-  .workspace-header .brand > span:last-child,
   .room-identity > span,
   .copy-button,
   .leave-button {
     font-size: 0;
+  }
+
+  .workspace-header .brand {
+    gap: 7px;
+    font-size: 0.9rem;
   }
 
   .room-identity {
