@@ -133,11 +133,12 @@ export function createPeerServer() {
       }
 
       if (message.type === 'join_room') {
-        const result = rooms.join(socket, message.roomCode)
+        const result = rooms.join(socket, message.roomCode, message.resumeToken)
         if (!result.ok) {
           sendError(socket, result.code, result.message)
           return
         }
+        result.replacedPeer?.terminate()
         send(socket, { type: 'room_joined', ...result.membership })
         const otherPeer = rooms.getOtherPeer(socket)
         if (otherPeer) send(otherPeer, { type: 'peer_joined' })
@@ -184,7 +185,7 @@ export function createPeerServer() {
       socket.isAlive = false
       socket.ping()
     }
-  }, 30_000)
+  }, 15_000)
 
   server.on('close', () => {
     clearInterval(heartbeat)

@@ -38,6 +38,36 @@ const MAX_MESSAGE_LENGTH = 4_000
 const MAX_FILE_SIZE = 25 * 1024 * 1024
 const FILE_CHUNK_SIZE = 16 * 1024
 
+const resumeTokenKey = (roomCode: string) => `p4pair:resume:${roomCode}`
+
+function readResumeToken(roomCode: string) {
+  try {
+    return window.localStorage.getItem(resumeTokenKey(roomCode)) ?? undefined
+  } catch {
+    return undefined
+  }
+}
+
+function rememberRoom(roomCode: string, resumeToken: string) {
+  try {
+    window.localStorage.setItem(resumeTokenKey(roomCode), resumeToken)
+    window.localStorage.setItem('p4pair:last-room', roomCode)
+  } catch {
+    // Rejoining still works normally when storage is unavailable.
+  }
+}
+
+function forgetRoom(roomCode: string) {
+  try {
+    window.localStorage.removeItem(resumeTokenKey(roomCode))
+    if (window.localStorage.getItem('p4pair:last-room') === roomCode) {
+      window.localStorage.removeItem('p4pair:last-room')
+    }
+  } catch {
+    // Nothing else is required when storage is unavailable.
+  }
+}
+
 const eventTime = () =>
   new Intl.DateTimeFormat(undefined, {
     hour: '2-digit',
@@ -412,6 +442,7 @@ export function usePeerSession() {
       if (message.type === 'room_created' || message.type === 'room_joined') {
         setRoomCode(message.roomCode)
         setPeerId(message.peerId)
+        rememberRoom(message.roomCode, message.resumeToken)
         setError('')
         changePhase(message.type === 'room_created' ? 'waiting' : 'connecting')
         addEvent(
@@ -424,6 +455,7 @@ export function usePeerSession() {
         return
       }
       if (message.type === 'peer_joined') {
+        closePeer()
         await createOffer()
         return
       }
@@ -475,13 +507,19 @@ export function usePeerSession() {
       }
       if (message.type === 'error') {
         setError(message.message)
+        if (message.code === 'room_full') {
+          setFailureHelp(
+            'The server still sees two browser sessions. Reopen the same invitation in the original browser to reclaim its place, or wait up to 30 seconds for an abandoned mobile session to expire.',
+          )
+        }
+        if (message.code === 'room_not_found' && roomCode) forgetRoom(roomCode)
         if (message.code === 'room_not_found' || message.code === 'room_full') {
           changePhase('failed')
         }
         addEvent('Signaling error', message.message, 'danger')
       }
     },
-    [addEvent, changePhase, closePeer, createOffer, ensurePeer, flushCandidates],
+    [addEvent, changePhase, closePeer, createOffer, ensurePeer, flushCandidates, roomCode],
   )
 
   useEffect(() => {
@@ -563,7 +601,12 @@ export function usePeerSession() {
       changePhase('signaling')
       try {
         const signal = await openSignal()
-        signal.send({ type: 'join_room', roomCode: code })
+        const resumeToken = readResumeToken(code)
+        signal.send({
+          type: 'join_room',
+          roomCode: code,
+          ...(resumeToken ? { resumeToken } : {}),
+        })
       } catch {
         changePhase('failed')
       }
@@ -576,13 +619,14 @@ export function usePeerSession() {
     signalRef.current?.close()
     signalRef.current = null
     closePeer()
+    forgetRoom(roomCode)
     setRoomCode('')
     setPeerId('')
     setError('')
     setFailureHelp('')
     changePhase('idle')
     intentionalCloseRef.current = false
-  }, [changePhase, closePeer])
+  }, [changePhase, closePeer, roomCode])
 
   const retry = useCallback(async () => {
     if (!roomCode) return
@@ -597,7 +641,12 @@ export function usePeerSession() {
     }
     try {
       const signal = await openSignal()
-      signal.send({ type: 'join_room', roomCode })
+      const resumeToken = readResumeToken(roomCode)
+      signal.send({
+        type: 'join_room',
+        roomCode,
+        ...(resumeToken ? { resumeToken } : {}),
+      })
     } catch {
       changePhase('failed')
     }

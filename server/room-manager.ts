@@ -6,6 +6,7 @@ const ROOM_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
 export type Membership = {
   peerId: string
   roomCode: string
+  resumeToken: string
 }
 
 type Room<TPeer extends object> = {
@@ -13,8 +14,8 @@ type Room<TPeer extends object> = {
   peers: TPeer[]
 }
 
-type RoomResult =
-  | { ok: true; membership: Membership }
+type RoomResult<TPeer> =
+  | { ok: true; membership: Membership; replacedPeer?: TPeer }
   | { ok: false; code: SignalErrorCode; message: string }
 
 export function createRoomCode() {
@@ -26,7 +27,7 @@ export class RoomManager<TPeer extends object> {
   private readonly rooms = new Map<string, Room<TPeer>>()
   private readonly memberships = new Map<TPeer, Membership>()
 
-  create(peer: TPeer): RoomResult {
+  create(peer: TPeer): RoomResult<TPeer> {
     if (this.memberships.has(peer)) {
       return { ok: false, code: 'already_in_room', message: 'Leave the current room first.' }
     }
@@ -34,13 +35,13 @@ export class RoomManager<TPeer extends object> {
     let roomCode = createRoomCode()
     while (this.rooms.has(roomCode)) roomCode = createRoomCode()
 
-    const membership = { peerId: randomUUID(), roomCode }
+    const membership = { peerId: randomUUID(), roomCode, resumeToken: randomUUID() }
     this.rooms.set(roomCode, { code: roomCode, peers: [peer] })
     this.memberships.set(peer, membership)
     return { ok: true, membership }
   }
 
-  join(peer: TPeer, roomCode: string): RoomResult {
+  join(peer: TPeer, roomCode: string, resumeToken?: string): RoomResult<TPeer> {
     if (this.memberships.has(peer)) {
       return { ok: false, code: 'already_in_room', message: 'Leave the current room first.' }
     }
@@ -49,11 +50,29 @@ export class RoomManager<TPeer extends object> {
     if (!room) {
       return { ok: false, code: 'room_not_found', message: 'That room no longer exists.' }
     }
+
+    const resumedIndex = resumeToken
+      ? room.peers.findIndex(
+          (candidate) => this.memberships.get(candidate)?.resumeToken === resumeToken,
+        )
+      : -1
+    if (resumedIndex >= 0) {
+      const replacedPeer = room.peers[resumedIndex]
+      const membership = this.memberships.get(replacedPeer)
+      if (!membership) {
+        return { ok: false, code: 'room_not_found', message: 'That room no longer exists.' }
+      }
+      room.peers[resumedIndex] = peer
+      this.memberships.delete(replacedPeer)
+      this.memberships.set(peer, membership)
+      return { ok: true, membership, replacedPeer }
+    }
+
     if (room.peers.length >= 2) {
       return { ok: false, code: 'room_full', message: 'That room already has two people.' }
     }
 
-    const membership = { peerId: randomUUID(), roomCode }
+    const membership = { peerId: randomUUID(), roomCode, resumeToken: randomUUID() }
     room.peers.push(peer)
     this.memberships.set(peer, membership)
     return { ok: true, membership }

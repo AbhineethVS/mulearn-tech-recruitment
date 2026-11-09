@@ -15,7 +15,7 @@ export type IceCandidatePayload = {
 
 export type ClientSignal =
   | { type: 'create_room' }
-  | { type: 'join_room'; roomCode: string }
+  | { type: 'join_room'; roomCode: string; resumeToken?: string }
   | { type: 'offer'; description: SessionDescriptionPayload }
   | { type: 'answer'; description: SessionDescriptionPayload }
   | { type: 'ice_candidate'; candidate: IceCandidatePayload }
@@ -31,8 +31,8 @@ export type SignalErrorCode =
   | 'peer_unavailable'
 
 export type ServerSignal =
-  | { type: 'room_created'; roomCode: string; peerId: string }
-  | { type: 'room_joined'; roomCode: string; peerId: string }
+  | { type: 'room_created'; roomCode: string; peerId: string; resumeToken: string }
+  | { type: 'room_joined'; roomCode: string; peerId: string; resumeToken: string }
   | { type: 'peer_joined' }
   | { type: 'offer'; description: SessionDescriptionPayload }
   | { type: 'answer'; description: SessionDescriptionPayload }
@@ -83,7 +83,19 @@ export function decodeClientSignal(value: unknown): ClientSignal | null {
     case 'join_room': {
       if (typeof value.roomCode !== 'string') return null
       const roomCode = normalizeRoomCode(value.roomCode)
-      return ROOM_CODE_PATTERN.test(roomCode) ? { type: 'join_room', roomCode } : null
+      if (
+        'resumeToken' in value &&
+        (typeof value.resumeToken !== 'string' ||
+          value.resumeToken.length < 32 ||
+          value.resumeToken.length > 128)
+      ) {
+        return null
+      }
+      const resumeToken =
+        typeof value.resumeToken === 'string' ? value.resumeToken : undefined
+      return ROOM_CODE_PATTERN.test(roomCode)
+        ? { type: 'join_room', roomCode, ...(resumeToken ? { resumeToken } : {}) }
+        : null
     }
     case 'offer':
     case 'answer':
@@ -107,8 +119,16 @@ export function decodeServerSignal(value: unknown): ServerSignal | null {
     case 'room_joined':
       return typeof value.roomCode === 'string' &&
         ROOM_CODE_PATTERN.test(value.roomCode) &&
-        typeof value.peerId === 'string'
-        ? { type: value.type, roomCode: value.roomCode, peerId: value.peerId }
+        typeof value.peerId === 'string' &&
+        typeof value.resumeToken === 'string' &&
+        value.resumeToken.length >= 32 &&
+        value.resumeToken.length <= 128
+        ? {
+            type: value.type,
+            roomCode: value.roomCode,
+            peerId: value.peerId,
+            resumeToken: value.resumeToken,
+          }
         : null
     case 'peer_joined':
     case 'peer_left':

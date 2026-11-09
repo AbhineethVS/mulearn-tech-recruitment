@@ -24,6 +24,13 @@ describe('protocol validation', () => {
       type: 'join_room',
       roomCode: 'ABCD2345',
     })
+    expect(
+      decodeClientSignal({
+        type: 'join_room',
+        roomCode: 'ABCD2345',
+        resumeToken: 'too-short',
+      }),
+    ).toBeNull()
     expect(decodeClientSignal({ type: 'offer', description: { type: 'answer', sdp: 'x' } })).toBeNull()
     expect(parseJson('{nope')).toBeNull()
   })
@@ -48,6 +55,31 @@ describe('room manager', () => {
     rooms.leave(first)
     rooms.leave(second)
     expect(rooms.roomCount()).toBe(0)
+  })
+
+  it('lets the same browser token reclaim a stale room slot', () => {
+    const rooms = new RoomManager<object>()
+    const first = {}
+    const staleSecond = {}
+    const replacement = {}
+    const created = rooms.create(first)
+    if (!created.ok) throw new Error('Room creation failed')
+    const joined = rooms.join(staleSecond, created.membership.roomCode)
+    if (!joined.ok) throw new Error('Room join failed')
+
+    const resumed = rooms.join(
+      replacement,
+      created.membership.roomCode,
+      joined.membership.resumeToken,
+    )
+
+    expect(resumed).toMatchObject({
+      ok: true,
+      membership: joined.membership,
+      replacedPeer: staleSecond,
+    })
+    expect(rooms.getMembership(staleSecond)).toBeUndefined()
+    expect(rooms.getOtherPeer(replacement)).toBe(first)
   })
 })
 
