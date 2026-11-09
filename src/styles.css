@@ -1091,6 +1091,71 @@ button:disabled {
   font-family: var(--mono);
 }
 
+.pwa-notice {
+  position: fixed;
+  z-index: 20;
+  right: 20px;
+  bottom: max(20px, env(safe-area-inset-bottom));
+  display: grid;
+  width: min(410px, calc(100% - 40px));
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 11px;
+  align-items: center;
+  padding: 13px;
+  border: 1px solid var(--line-strong);
+  background: var(--paper);
+  box-shadow: 7px 7px 0 rgba(20, 32, 35, 0.1);
+}
+
+.pwa-notice > svg {
+  color: var(--blue);
+}
+
+.pwa-notice > div {
+  display: grid;
+  gap: 2px;
+}
+
+.pwa-notice b {
+  font-size: 0.84rem;
+}
+
+.pwa-notice span {
+  color: var(--muted);
+  font-size: 0.72rem;
+  line-height: 1.35;
+}
+
+.pwa-notice button {
+  min-height: 40px;
+  padding: 0 12px;
+  border: 1px solid var(--blue);
+  background: var(--blue);
+  color: white;
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.pwa-notice .pwa-dismiss {
+  display: grid;
+  width: 40px;
+  padding: 0;
+  place-items: center;
+  border-color: var(--line);
+  background: transparent;
+  color: var(--ink);
+}
+
+.pwa-offline {
+  border-color: #d49b96;
+  background: var(--red-soft);
+}
+
+.pwa-offline > svg,
+.pwa-offline b {
+  color: var(--red);
+}
+
 @keyframes turn {
   to { transform: rotate(360deg); }
 }
@@ -1258,6 +1323,12 @@ button:disabled {
 
   .composer {
     padding: 10px;
+  }
+
+  .pwa-notice {
+    right: 12px;
+    bottom: max(12px, env(safe-area-inset-bottom));
+    width: calc(100% - 24px);
   }
 }
 

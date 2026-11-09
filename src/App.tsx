@@ -25,9 +25,11 @@ import {
   useState,
   type FormEvent,
   type KeyboardEvent,
+  type ReactNode,
 } from 'react'
 import { normalizeRoomCode } from '../shared/protocol'
 import { usePeerSession, type SessionPhase } from './hooks/usePeerSession'
+import { usePwa } from './hooks/usePwa'
 import type { ConnectionRoute } from './lib/peer-connection'
 import type { FileTransfer } from './types/messages'
 import './styles.css'
@@ -78,6 +80,7 @@ function Landing({
   onJoin,
   busy,
   error,
+  online,
 }: {
   roomInput: string
   onRoomInput: (value: string) => void
@@ -85,6 +88,7 @@ function Landing({
   onJoin: () => void
   busy: boolean
   error: string
+  online: boolean
 }) {
   const submit = (event: FormEvent) => {
     event.preventDefault()
@@ -127,7 +131,7 @@ function Landing({
           <h2 id="room-panel-title">Meet in a room</h2>
           <p>Rooms hold two people and disappear when both leave.</p>
 
-          <button className="primary-action" type="button" onClick={onCreate} disabled={busy}>
+          <button className="primary-action" type="button" onClick={onCreate} disabled={busy || !online}>
             <Link2 size={19} />
             {busy ? 'Opening signal…' : 'Create a room'}
           </button>
@@ -146,13 +150,17 @@ function Landing({
                 spellCheck={false}
                 maxLength={8}
               />
-              <button type="submit" disabled={busy || roomInput.length !== 8}>
+              <button type="submit" disabled={busy || !online || roomInput.length !== 8}>
                 Join
                 <ArrowUp size={17} />
               </button>
             </div>
           </form>
-          {error && <p className="inline-error" role="alert">{error}</p>}
+          {(error || !online) && (
+            <p className="inline-error" role="alert">
+              {online ? error : 'You are offline. Reconnect to create or join a room.'}
+            </p>
+          )}
 
           <ol className="mini-steps">
             <li><b>1</b><span>The server introduces both browsers.</span></li>
@@ -481,15 +489,62 @@ function ChatWorkspace({ session }: { session: ReturnType<typeof usePeerSession>
   )
 }
 
+function PwaNotice({ pwa }: { pwa: ReturnType<typeof usePwa> }) {
+  if (!pwa.online) {
+    return (
+      <aside className="pwa-notice pwa-offline" role="status">
+        <Unplug size={19} />
+        <div><b>P4Pair is offline</b><span>The app shell is available, but signaling needs a network.</span></div>
+      </aside>
+    )
+  }
+
+  if (pwa.updateAvailable) {
+    return (
+      <aside className="pwa-notice" role="status">
+        <RefreshCw size={19} />
+        <div><b>Update ready</b><span>Reload into the latest P4Pair version.</span></div>
+        <button type="button" onClick={pwa.applyUpdate}>Update</button>
+      </aside>
+    )
+  }
+
+  if (pwa.canInstall) {
+    return (
+      <aside className="pwa-notice" role="status">
+        <Download size={19} />
+        <div><b>Install P4Pair</b><span>Open it like an app on this device.</span></div>
+        <button type="button" onClick={() => void pwa.install()}>Install</button>
+      </aside>
+    )
+  }
+
+  if (pwa.showIosHint) {
+    return (
+      <aside className="pwa-notice" role="status">
+        <Download size={19} />
+        <div><b>Install on this device</b><span>In Safari, tap Share, then “Add to Home Screen.”</span></div>
+        <button className="pwa-dismiss" type="button" onClick={pwa.dismissIosHint} aria-label="Dismiss install guidance">
+          <X size={17} />
+        </button>
+      </aside>
+    )
+  }
+
+  return null
+}
+
 export default function App() {
   const [roomInput, setRoomInput] = useState(() => {
     const code = new URLSearchParams(window.location.search).get('room') ?? ''
     return normalizeRoomCode(code)
   })
   const session = usePeerSession()
+  const pwa = usePwa()
 
+  let content: ReactNode
   if (session.phase !== 'idle' && !session.roomCode && session.phase !== 'failed') {
-    return (
+    content = (
       <div className="connecting-screen">
         <Brand />
         <span className="large-spinner"><Activity size={28} /></span>
@@ -497,20 +552,26 @@ export default function App() {
         <p>Preparing a private room for the two browsers.</p>
       </div>
     )
-  }
-
-  if (session.roomCode) {
-    return <ChatWorkspace session={session} />
+  } else if (session.roomCode) {
+    content = <ChatWorkspace session={session} />
+  } else {
+    content = (
+      <Landing
+        roomInput={roomInput}
+        onRoomInput={setRoomInput}
+        onCreate={() => void session.createRoom()}
+        onJoin={() => void session.joinRoom(roomInput)}
+        busy={session.phase === 'signaling'}
+        error={session.error}
+        online={pwa.online}
+      />
+    )
   }
 
   return (
-    <Landing
-      roomInput={roomInput}
-      onRoomInput={setRoomInput}
-      onCreate={() => void session.createRoom()}
-      onJoin={() => void session.joinRoom(roomInput)}
-      busy={session.phase === 'signaling'}
-      error={session.error}
-    />
+    <>
+      {content}
+      <PwaNotice pwa={pwa} />
+    </>
   )
 }

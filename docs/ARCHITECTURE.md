@@ -46,6 +46,14 @@ statistics. Host-only pairs are shown as direct host routes, server-reflexive pa
 routes, and relay candidates as TURN routes. This keeps the UI accurate instead of calling every
 WebRTC session physically direct.
 
+## PWA boundary
+
+The production service worker precaches the generated application shell and serves it when
+navigation is offline. Hashed scripts, styles, fonts, and images are cached as static assets.
+`/signal`, `/health`, and `/api/*` are always network-only, so stale room state or TURN credentials
+cannot be replayed from a cache. The offline shell is informational: a new room still requires
+network access to signaling, and peer content remains outside the service worker cache.
+
 ## Network traversal
 
 The default ICE configuration uses public STUN servers. STUN lets many peers discover a usable

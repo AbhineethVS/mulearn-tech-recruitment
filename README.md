@@ -15,6 +15,7 @@ over WebRTC data channels.
 - Local connection timeline that makes negotiation understandable during a demo
 - Selected-route proof: direct host, direct STUN, or relayed TURN
 - STUN-backed ICE discovery for common cross-network connections
+- Installable PWA shell with explicit offline and update states
 - Responsive, keyboard-accessible interface
 
 The signaling server does not receive chat text or file bytes. Messages are held only in the two
@@ -44,6 +45,15 @@ the second, and send a message after both pages show “Direct channel open.”
 - A Vite WebSocket proxy from `/signal` to the signaling server
 
 No account, database, OAuth provider, or secret is required.
+
+## Install as an app
+
+On supported desktop and Android browsers, use P4Pair's Install prompt or the browser's install
+menu. On iPhone or iPad, open P4Pair in Safari, tap Share, and choose **Add to Home Screen**.
+
+The service worker caches only the versioned frontend shell. Signaling, health checks, and dynamic
+ICE/TURN configuration remain network-only; opening the cached interface offline does not create a
+working chat connection.
 
 ## Production
 
@@ -126,6 +136,7 @@ production builds.
 - `server/room-manager.ts` — ephemeral two-peer rooms
 - `server/index.ts` — HTTP, WebSocket signaling, origin checks, and heartbeat cleanup
 - `src/hooks/usePeerSession.ts` — WebRTC state machine, chat, and files
+- `src/hooks/usePwa.ts` — installation, updates, and connectivity state
 - `src/App.tsx` — room and conversation interface
 - `docs/ARCHITECTURE.md` — data flow, boundaries, and trade-offs
 - `docs/DESIGN_SYSTEM.md` — visual and interaction rules
