@@ -1176,6 +1176,44 @@ button:disabled {
   color: var(--blue-dark);
 }
 
+.message-action-menu {
+  display: grid;
+  gap: 3px;
+  margin-top: 4px;
+  padding: 4px;
+  border: 1px solid var(--line);
+  background: white;
+}
+
+.message-action-menu button {
+  display: flex;
+  min-height: 34px;
+  align-items: center;
+  gap: 7px;
+  padding: 0 9px;
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  font-size: 0.72rem;
+  text-align: left;
+}
+
+.message-action-menu button:hover {
+  background: var(--blue-soft);
+}
+
+.message-action-menu .danger {
+  color: var(--red);
+}
+
+.message .message-tombstone {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--muted);
+  font-style: italic;
+}
+
 .reaction-picker {
   display: flex;
   gap: 2px;
@@ -1503,6 +1541,12 @@ button:disabled {
   border: 0;
   background: transparent;
   color: var(--ink);
+}
+
+.composer-edit {
+  border-color: #d6b06b;
+  background: #fff8e7;
+  color: #76500b;
 }
 
 .composer-field:focus-within {

@@ -128,6 +128,23 @@ export const isPeerEnvelope = (value: unknown): value is PeerEnvelope => {
       REACTIONS.has(item.emoji as EmojiReaction)
     )
   }
+  if (item.kind === 'message_edit') {
+    return (
+      typeof item.messageId === 'string' &&
+      typeof item.text === 'string' &&
+      item.text.trim().length > 0 &&
+      item.text.length <= MAX_MESSAGE_LENGTH &&
+      typeof item.editedAt === 'string' &&
+      Number.isFinite(Date.parse(item.editedAt))
+    )
+  }
+  if (item.kind === 'message_delete') {
+    return (
+      typeof item.messageId === 'string' &&
+      typeof item.deletedAt === 'string' &&
+      Number.isFinite(Date.parse(item.deletedAt))
+    )
+  }
   if (item.kind === 'typing') return typeof item.active === 'boolean'
   return (
     item.kind === 'chat' &&
@@ -307,6 +324,49 @@ export function usePeerSession() {
                 : message,
             ),
           )
+        } else if (envelope.kind === 'message_edit') {
+          setMessages((current) => {
+            const original = current.find((message) => message.id === envelope.messageId)
+            if (!original || original.direction !== 'incoming' || original.deletedAt) return current
+            return current.map((message) => {
+              if (
+                message.id === envelope.messageId &&
+                (!message.editedAt ||
+                  Date.parse(envelope.editedAt) >= Date.parse(message.editedAt))
+              ) {
+                return { ...message, text: envelope.text, editedAt: envelope.editedAt }
+              }
+              if (message.replyTo?.id === envelope.messageId) {
+                return {
+                  ...message,
+                  replyTo: { ...message.replyTo, text: envelope.text.slice(0, 180) },
+                }
+              }
+              return message
+            })
+          })
+        } else if (envelope.kind === 'message_delete') {
+          setMessages((current) => {
+            const original = current.find((message) => message.id === envelope.messageId)
+            if (!original || original.direction !== 'incoming') return current
+            return current.map((message) => {
+              if (message.id === envelope.messageId) {
+                return {
+                  ...message,
+                  text: '',
+                  deletedAt: envelope.deletedAt,
+                  reactions: {},
+                }
+              }
+              if (message.replyTo?.id === envelope.messageId) {
+                return {
+                  ...message,
+                  replyTo: { ...message.replyTo, text: 'Original message deleted' },
+                }
+              }
+              return message
+            })
+          })
         } else {
           setPeerTyping(envelope.active)
         }
@@ -823,6 +883,65 @@ export function usePeerSession() {
     )
   }, [])
 
+  const editMessage = useCallback((messageId: string, rawText: string) => {
+    const text = rawText.trim()
+    const channel = chatChannelRef.current
+    if (!text || text.length > MAX_MESSAGE_LENGTH || channel?.readyState !== 'open') return false
+    const editedAt = new Date().toISOString()
+    channel.send(
+      JSON.stringify({
+        kind: 'message_edit',
+        messageId,
+        text,
+        editedAt,
+      } satisfies PeerEnvelope),
+    )
+    setMessages((current) =>
+      current.map((message) => {
+        if (
+          message.id === messageId &&
+          message.direction === 'outgoing' &&
+          !message.deletedAt
+        ) {
+          return { ...message, text, editedAt }
+        }
+        if (message.replyTo?.id === messageId) {
+          return { ...message, replyTo: { ...message.replyTo, text: text.slice(0, 180) } }
+        }
+        return message
+      }),
+    )
+    return true
+  }, [])
+
+  const deleteMessage = useCallback((messageId: string) => {
+    const channel = chatChannelRef.current
+    if (channel?.readyState !== 'open') return false
+    const deletedAt = new Date().toISOString()
+    channel.send(
+      JSON.stringify({
+        kind: 'message_delete',
+        messageId,
+        deletedAt,
+      } satisfies PeerEnvelope),
+    )
+    setMessages((current) =>
+      current.map((message) => {
+        if (message.id === messageId && message.direction === 'outgoing') {
+          return { ...message, text: '', deletedAt, reactions: {} }
+        }
+        if (message.replyTo?.id === messageId) {
+          return {
+            ...message,
+            replyTo: { ...message.replyTo, text: 'Original message deleted' },
+          }
+        }
+        return message
+      }),
+    )
+    return true
+  }, [])
+
   const sendTyping = useCallback((active: boolean) => {
     const channel = chatChannelRef.current
     if (channel?.readyState === 'open') {
@@ -1010,6 +1129,8 @@ export function usePeerSession() {
     retry,
     sendMessage,
     reactToMessage,
+    editMessage,
+    deleteMessage,
     sendTyping,
     setDisplayName,
     sendFile,

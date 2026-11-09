@@ -39,4 +39,30 @@ describe('replies and reactions', () => {
     expect(isPeerEnvelope({ kind: 'reaction', messageId: 'reply', emoji: '❤️' })).toBe(true)
     expect(isPeerEnvelope({ kind: 'reaction', messageId: 'reply', emoji: '🚀' })).toBe(false)
   })
+
+  it('accepts bounded edits and deletes while rejecting empty edits', () => {
+    expect(
+      isPeerEnvelope({
+        kind: 'message_edit',
+        messageId: 'message-1',
+        text: 'Corrected text',
+        editedAt: new Date().toISOString(),
+      }),
+    ).toBe(true)
+    expect(
+      isPeerEnvelope({
+        kind: 'message_edit',
+        messageId: 'message-1',
+        text: '   ',
+        editedAt: new Date().toISOString(),
+      }),
+    ).toBe(false)
+    expect(
+      isPeerEnvelope({
+        kind: 'message_delete',
+        messageId: 'message-1',
+        deletedAt: new Date().toISOString(),
+      }),
+    ).toBe(true)
+  })
 })

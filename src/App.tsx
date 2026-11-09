@@ -10,8 +10,10 @@ import {
   LockKeyhole,
   MessageSquareText,
   Mic,
+  MoreHorizontal,
   Paperclip,
   Pause,
+  Pencil,
   Play,
   Radio,
   QrCode,
@@ -486,6 +488,10 @@ function MessageItem({
   onReply,
   onToggleReactions,
   onReact,
+  menuOpen,
+  onToggleMenu,
+  onEdit,
+  onDelete,
 }: {
   message: ChatMessage
   peerName: string
@@ -493,16 +499,24 @@ function MessageItem({
   onReply: () => void
   onToggleReactions: () => void
   onReact: (emoji: EmojiReaction) => void
+  menuOpen: boolean
+  onToggleMenu: () => void
+  onEdit: () => void
+  onDelete: () => void
 }) {
   return (
     <article className={`message message-${message.direction}`}>
-      {message.replyTo && (
+      {!message.deletedAt && message.replyTo && (
         <blockquote className="message-reply">
           <b>{message.replyTo.author}</b>
           <span>{message.replyTo.text}</span>
         </blockquote>
       )}
-      <p>{message.text}</p>
+      {message.deletedAt ? (
+        <p className="message-tombstone"><Trash2 size={14} /> This message was deleted</p>
+      ) : (
+        <p>{message.text}</p>
+      )}
       <footer>
         <time dateTime={message.sentAt}>
           {new Date(message.sentAt).toLocaleTimeString([], {
@@ -510,9 +524,10 @@ function MessageItem({
             minute: '2-digit',
           })}
         </time>
+        {message.editedAt && !message.deletedAt && <span>edited</span>}
         {message.direction === 'outgoing' && <MessageReceipt status={message.status} />}
       </footer>
-      {(message.reactions.local || message.reactions.peer) && (
+      {!message.deletedAt && (message.reactions.local || message.reactions.peer) && (
         <div className="message-reactions" aria-label="Message reactions">
           {message.reactions.local && (
             <span title="Your reaction">{message.reactions.local}</span>
@@ -522,21 +537,41 @@ function MessageItem({
           )}
         </div>
       )}
-      <div className="message-tools">
-        <button type="button" onClick={onReply}>
-          <Reply size={13} />
-          Reply
-        </button>
-        <button
-          type="button"
-          onClick={onToggleReactions}
-          aria-expanded={reactionOpen}
-          aria-label="Add emoji reaction"
-        >
-          <SmilePlus size={14} />
-        </button>
-      </div>
-      {reactionOpen && (
+      {!message.deletedAt && (
+        <div className="message-tools">
+          <button type="button" onClick={onReply}>
+            <Reply size={13} />
+            Reply
+          </button>
+          <button
+            type="button"
+            onClick={onToggleReactions}
+            aria-expanded={reactionOpen}
+            aria-label="Add emoji reaction"
+          >
+            <SmilePlus size={14} />
+          </button>
+          {message.direction === 'outgoing' && (
+            <button
+              type="button"
+              onClick={onToggleMenu}
+              aria-expanded={menuOpen}
+              aria-label="Message actions"
+            >
+              <MoreHorizontal size={15} />
+            </button>
+          )}
+        </div>
+      )}
+      {menuOpen && !message.deletedAt && (
+        <div className="message-action-menu">
+          <button type="button" onClick={onEdit}><Pencil size={14} /> Edit message</button>
+          <button type="button" className="danger" onClick={onDelete}>
+            <Trash2 size={14} /> Delete message
+          </button>
+        </div>
+      )}
+      {reactionOpen && !message.deletedAt && (
         <div className="reaction-picker" role="group" aria-label="Choose a reaction">
           {REACTION_OPTIONS.map((emoji) => (
             <button
@@ -566,10 +601,13 @@ function ChatWorkspace({
   const [detailsOpen, setDetailsOpen] = useState(false)
   const [inviteOpen, setInviteOpen] = useState(false)
   const [replyingTo, setReplyingTo] = useState<ChatMessage | null>(null)
+  const [editingMessage, setEditingMessage] = useState<ChatMessage | null>(null)
   const [reactionTarget, setReactionTarget] = useState<string | null>(null)
+  const [actionMenuTarget, setActionMenuTarget] = useState<string | null>(null)
   const messageEndRef = useRef<HTMLDivElement>(null)
   const typingTimerRef = useRef<number | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
   const handleVoiceRecorded = useCallback(
     (recording: { blob: Blob; durationMs: number; waveform: number[] }) => {
       setFileError('')
@@ -638,6 +676,14 @@ function ChatWorkspace({
   }, [detailsOpen])
 
   const submitMessage = () => {
+    if (editingMessage) {
+      if (session.editMessage(editingMessage.id, draft)) {
+        setDraft('')
+        setEditingMessage(null)
+        session.sendTyping(false)
+      }
+      return
+    }
     const replyReference: ReplyReference | undefined = replyingTo
       ? {
           id: replyingTo.id,
@@ -769,9 +815,12 @@ function ChatWorkspace({
                   message={entry.message}
                   peerName={session.peerName}
                   reactionOpen={reactionTarget === entry.id}
+                  menuOpen={actionMenuTarget === entry.id}
                   onReply={() => {
                     setReplyingTo(entry.message)
+                    setEditingMessage(null)
                     setReactionTarget(null)
+                    setActionMenuTarget(null)
                   }}
                   onToggleReactions={() =>
                     setReactionTarget((current) => (current === entry.id ? null : entry.id))
@@ -779,6 +828,25 @@ function ChatWorkspace({
                   onReact={(emoji) => {
                     session.reactToMessage(entry.id, emoji)
                     setReactionTarget(null)
+                  }}
+                  onToggleMenu={() =>
+                    setActionMenuTarget((current) => (current === entry.id ? null : entry.id))
+                  }
+                  onEdit={() => {
+                    setEditingMessage(entry.message)
+                    setReplyingTo(null)
+                    setDraft(entry.message.text)
+                    setActionMenuTarget(null)
+                    window.setTimeout(() => textareaRef.current?.focus(), 0)
+                  }}
+                  onDelete={() => {
+                    setActionMenuTarget(null)
+                    if (!window.confirm('Delete this message for both browsers?')) return
+                    session.deleteMessage(entry.id)
+                    if (editingMessage?.id === entry.id) {
+                      setEditingMessage(null)
+                      setDraft('')
+                    }
                   }}
                 />
               ) : entry.transfer.category === 'voice' ? (
@@ -825,6 +893,25 @@ function ChatWorkspace({
               hidden
               onChange={(event) => void chooseFile(event.target.files?.[0])}
             />
+            {editingMessage && !voice.recording && (
+              <div className="composer-reply composer-edit">
+                <Pencil size={15} />
+                <span>
+                  <b>Editing message</b>
+                  <small>{editingMessage.text}</small>
+                </span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEditingMessage(null)
+                    setDraft('')
+                  }}
+                  aria-label="Cancel editing"
+                >
+                  <X size={16} />
+                </button>
+              </div>
+            )}
             {replyingTo && !voice.recording && (
               <div className="composer-reply">
                 <Reply size={15} />
@@ -878,6 +965,7 @@ function ChatWorkspace({
                     <Paperclip size={19} />
                   </button>
                   <textarea
+                    ref={textareaRef}
                     value={draft}
                     onChange={(event) => updateDraft(event.target.value)}
                     onKeyDown={keyDown}
@@ -893,6 +981,8 @@ function ChatWorkspace({
                     type="button"
                   onClick={() => {
                     setReplyingTo(null)
+                    setEditingMessage(null)
+                    setDraft('')
                     void voice.start()
                   }}
                     disabled={session.phase !== 'connected'}

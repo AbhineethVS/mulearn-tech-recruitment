@@ -12,6 +12,8 @@ export type ChatMessage = {
   sentAt: string
   direction: 'incoming' | 'outgoing'
   status: 'sent' | 'delivered' | 'seen'
+  editedAt?: string
+  deletedAt?: string
   replyTo?: ReplyReference
   reactions: {
     local?: EmojiReaction
@@ -25,6 +27,8 @@ export type PeerEnvelope =
   | { kind: 'seen'; ids: string[] }
   | { kind: 'profile'; name: string }
   | { kind: 'reaction'; messageId: string; emoji: EmojiReaction }
+  | { kind: 'message_edit'; messageId: string; text: string; editedAt: string }
+  | { kind: 'message_delete'; messageId: string; deletedAt: string }
   | { kind: 'typing'; active: boolean }
 
 export type FileControlEnvelope =
