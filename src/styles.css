@@ -800,6 +800,80 @@ button:disabled {
   font-size: 0.76rem;
 }
 
+.voice-note {
+  display: flex;
+  width: min(100%, 420px);
+  align-items: center;
+  gap: 11px;
+  padding: 11px 12px;
+  border: 1px solid var(--line);
+  background: white;
+}
+
+.voice-note-outgoing {
+  align-self: flex-end;
+  border-color: #b7c7fa;
+  background: var(--blue-soft);
+}
+
+.voice-note-incoming {
+  align-self: flex-start;
+}
+
+.voice-play {
+  display: grid;
+  width: 42px;
+  height: 42px;
+  flex: 0 0 42px;
+  place-items: center;
+  border: 1px solid var(--blue);
+  border-radius: 50%;
+  background: var(--blue);
+  color: white;
+}
+
+.voice-play:disabled {
+  border-color: var(--line-strong);
+  background: var(--canvas);
+  color: var(--faint);
+}
+
+.voice-note-body {
+  display: grid;
+  min-width: 0;
+  flex: 1;
+  gap: 5px;
+}
+
+.voice-waveform {
+  display: flex;
+  height: 31px;
+  align-items: center;
+  gap: 2px;
+}
+
+.voice-waveform i {
+  min-width: 2px;
+  flex: 1;
+  background: var(--line-strong);
+}
+
+.voice-waveform i.wave-played {
+  background: var(--blue);
+}
+
+.voice-note-meta {
+  display: flex;
+  justify-content: space-between;
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: 0.61rem;
+}
+
+.voice-note audio {
+  display: none;
+}
+
 .transfer {
   display: flex;
   width: min(100%, 460px);
@@ -916,7 +990,7 @@ button:disabled {
 
 .composer {
   display: grid;
-  grid-template-columns: 44px minmax(0, 1fr) 44px;
+  grid-template-columns: 44px minmax(0, 1fr) 44px 44px;
   gap: 8px;
   align-items: end;
   padding: 14px max(18px, calc((100% - 820px) / 2));
@@ -925,6 +999,7 @@ button:disabled {
 }
 
 .attach-button,
+.voice-button,
 .send-button {
   display: grid;
   width: 44px;
@@ -942,10 +1017,78 @@ button:disabled {
 }
 
 .send-button:disabled,
+.voice-button:disabled,
 .attach-button:disabled {
   border-color: var(--line);
   background: var(--canvas);
   color: var(--faint);
+}
+
+.voice-button {
+  color: var(--blue-dark);
+}
+
+.composer-recording {
+  grid-template-columns: 44px minmax(0, 1fr) 44px;
+}
+
+.recording-cancel,
+.voice-send {
+  display: grid;
+  width: 44px;
+  height: 44px;
+  place-items: center;
+  border: 1px solid var(--line-strong);
+  background: transparent;
+  color: var(--red);
+}
+
+.voice-send {
+  border-color: var(--blue);
+  background: var(--blue);
+  color: white;
+}
+
+.recording-state {
+  display: grid;
+  min-width: 0;
+  height: 44px;
+  grid-template-columns: auto auto minmax(80px, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+  padding: 0 10px;
+  border: 1px solid #d49b96;
+  background: var(--red-soft);
+}
+
+.recording-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--red);
+  box-shadow: 0 0 0 4px rgba(181, 60, 54, 0.12);
+}
+
+.recording-state time {
+  min-width: 35px;
+  color: #7f2723;
+  font-family: var(--mono);
+  font-size: 0.69rem;
+}
+
+.recording-state .voice-waveform {
+  height: 27px;
+}
+
+.recording-state .voice-waveform i {
+  background: #c86d66;
+}
+
+.recording-state small {
+  color: #8f3d37;
+  font-family: var(--mono);
+  font-size: 0.58rem;
+  white-space: nowrap;
 }
 
 .composer textarea {

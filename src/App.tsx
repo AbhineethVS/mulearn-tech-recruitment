@@ -9,16 +9,22 @@ import {
   Link2,
   LockKeyhole,
   MessageSquareText,
+  Mic,
   Paperclip,
+  Pause,
+  Play,
   Radio,
   RefreshCw,
   ShieldCheck,
+  Square,
+  Trash2,
   Unplug,
   UserRound,
   Wifi,
   X,
 } from 'lucide-react'
 import {
+  useCallback,
   useEffect,
   useMemo,
   useRef,
@@ -30,6 +36,7 @@ import {
 import { normalizeRoomCode } from '../shared/protocol'
 import { usePeerSession, type SessionPhase } from './hooks/usePeerSession'
 import { usePwa } from './hooks/usePwa'
+import { useVoiceRecorder } from './hooks/useVoiceRecorder'
 import type { ConnectionRoute } from './lib/peer-connection'
 import type { FileTransfer } from './types/messages'
 import './styles.css'
@@ -52,6 +59,11 @@ const formatBytes = (bytes: number) => {
   if (bytes < 1024) return `${bytes} B`
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+}
+
+const formatDuration = (durationMs: number) => {
+  const totalSeconds = Math.max(0, Math.round(durationMs / 1000))
+  return `${Math.floor(totalSeconds / 60)}:${String(totalSeconds % 60).padStart(2, '0')}`
 }
 
 function Mark() {
@@ -226,6 +238,87 @@ function ConnectionRail({
   )
 }
 
+function Waveform({
+  levels,
+  progress = 0,
+}: {
+  levels: number[]
+  progress?: number
+}) {
+  return (
+    <span className="voice-waveform" aria-hidden="true">
+      {levels.map((level, index) => (
+        <i
+          className={progress > 0 && index / levels.length <= progress ? 'wave-played' : ''}
+          key={`${index}-${level}`}
+          style={{ height: `${Math.max(10, level * 100)}%` }}
+        />
+      ))}
+    </span>
+  )
+}
+
+function VoiceNoteItem({ transfer }: { transfer: FileTransfer }) {
+  const audioRef = useRef<HTMLAudioElement>(null)
+  const [playing, setPlaying] = useState(false)
+  const [elapsedMs, setElapsedMs] = useState(0)
+  const durationMs = transfer.durationMs ?? 0
+  const playbackProgress = durationMs > 0 ? Math.min(1, elapsedMs / durationMs) : 0
+  const playable = Boolean(transfer.url) && transfer.status === 'complete'
+
+  const togglePlayback = async () => {
+    const audio = audioRef.current
+    if (!audio || !playable) return
+    if (audio.paused) await audio.play()
+    else audio.pause()
+  }
+
+  return (
+    <article className={`voice-note voice-note-${transfer.direction}`}>
+      <button
+        className="voice-play"
+        type="button"
+        onClick={() => void togglePlayback()}
+        disabled={!playable}
+        aria-label={playing ? 'Pause voice message' : 'Play voice message'}
+      >
+        {playing ? <Pause size={18} /> : <Play size={18} />}
+      </button>
+      <div className="voice-note-body">
+        <Waveform levels={transfer.waveform ?? []} progress={playbackProgress} />
+        <div className="voice-note-meta">
+          <span>
+            {playing ? formatDuration(elapsedMs) : formatDuration(durationMs)}
+          </span>
+          <span>
+            {transfer.status === 'transferring'
+              ? `${transfer.progress}%`
+              : transfer.status === 'complete'
+                ? transfer.direction === 'incoming'
+                  ? 'Voice received'
+                  : 'Voice sent'
+                : transfer.status}
+          </span>
+        </div>
+      </div>
+      {transfer.url && (
+        <audio
+          ref={audioRef}
+          src={transfer.url}
+          preload="metadata"
+          onPlay={() => setPlaying(true)}
+          onPause={() => setPlaying(false)}
+          onEnded={() => {
+            setPlaying(false)
+            setElapsedMs(0)
+          }}
+          onTimeUpdate={(event) => setElapsedMs(event.currentTarget.currentTime * 1000)}
+        />
+      )}
+    </article>
+  )
+}
+
 function TransferItem({
   transfer,
   onCancel,
@@ -277,6 +370,21 @@ function ChatWorkspace({
   const typingTimerRef = useRef<number | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const status = phaseCopy[session.phase]
+  const handleVoiceRecorded = useCallback(
+    (recording: { blob: Blob; durationMs: number; waveform: number[] }) => {
+      setFileError('')
+      void session
+        .sendVoice(recording.blob, recording.durationMs, recording.waveform)
+        .catch((caught) => {
+          setFileError(
+            caught instanceof Error ? caught.message : 'The voice message could not be sent.',
+          )
+        })
+    },
+    [session],
+  )
+  const voice = useVoiceRecorder(handleVoiceRecorded)
+  const { cancel: cancelVoice, recording: voiceRecording } = voice
 
   const inviteUrl = useMemo(() => {
     if (!session.roomCode) return ''
@@ -297,6 +405,10 @@ function ChatWorkspace({
     window.addEventListener('beforeunload', warn)
     return () => window.removeEventListener('beforeunload', warn)
   }, [session.phase])
+
+  useEffect(() => {
+    if (session.phase !== 'connected' && voiceRecording) cancelVoice()
+  }, [cancelVoice, session.phase, voiceRecording])
 
   const copyInvite = async () => {
     await navigator.clipboard.writeText(inviteUrl)
@@ -429,18 +541,20 @@ function ChatWorkspace({
             ))}
 
             {session.transfers.map((transfer) => (
-              <TransferItem key={transfer.id} transfer={transfer} onCancel={session.cancelTransfer} />
+              transfer.category === 'voice'
+                ? <VoiceNoteItem key={transfer.id} transfer={transfer} />
+                : <TransferItem key={transfer.id} transfer={transfer} onCancel={session.cancelTransfer} />
             ))}
 
             {session.peerTyping && <p className="typing-indicator">Peer is typing<span>…</span></p>}
             <div ref={messageEndRef} />
           </div>
 
-          {(session.error || fileError) && (
+          {(session.error || fileError || voice.error) && (
             <div className="conversation-error" role="alert">
               <div className="error-copy">
-                <strong>{fileError || session.error}</strong>
-                {!fileError && session.failureHelp && <p>{session.failureHelp}</p>}
+                <strong>{fileError || voice.error || session.error}</strong>
+                {!fileError && !voice.error && session.failureHelp && <p>{session.failureHelp}</p>}
               </div>
               {(session.phase === 'disconnected' || session.phase === 'failed') && (
                 <button type="button" onClick={session.retry}><RefreshCw size={15} /> Try again</button>
@@ -449,7 +563,7 @@ function ChatWorkspace({
           )}
 
           <form
-            className="composer"
+            className={`composer ${voice.recording ? 'composer-recording' : ''}`}
             onSubmit={(event) => {
               event.preventDefault()
               submitMessage()
@@ -461,30 +575,71 @@ function ChatWorkspace({
               hidden
               onChange={(event) => void chooseFile(event.target.files?.[0])}
             />
-            <button
-              className="attach-button"
-              type="button"
-              onClick={() => fileInputRef.current?.click()}
-              disabled={session.phase !== 'connected'}
-              aria-label="Send a file"
-              title="Send a file up to 25 MB"
-            >
-              <Paperclip size={19} />
-            </button>
-            <textarea
-              value={draft}
-              onChange={(event) => updateDraft(event.target.value)}
-              onKeyDown={keyDown}
-              onBlur={() => session.sendTyping(false)}
-              placeholder={session.phase === 'connected' ? 'Write a direct message' : 'Connect to begin messaging'}
-              disabled={session.phase !== 'connected'}
-              maxLength={4000}
-              rows={1}
-              aria-label="Message"
-            />
-            <button className="send-button" type="submit" disabled={session.phase !== 'connected' || !draft.trim()} aria-label="Send message">
-              <ArrowUp size={19} />
-            </button>
+            {voice.recording ? (
+              <>
+                <button
+                  className="recording-cancel"
+                  type="button"
+                  onClick={voice.cancel}
+                  aria-label="Discard voice recording"
+                  title="Discard recording"
+                >
+                  <Trash2 size={18} />
+                </button>
+                <div className="recording-state" role="status" aria-live="polite">
+                  <span className="recording-dot" />
+                  <time>{formatDuration(voice.durationMs)}</time>
+                  <Waveform levels={voice.levels} />
+                  <small>2:00 max</small>
+                </div>
+                <button
+                  className="voice-send"
+                  type="button"
+                  onClick={voice.stop}
+                  aria-label="Stop and send voice message"
+                  title="Stop and send"
+                >
+                  <Square size={17} />
+                </button>
+              </>
+            ) : (
+              <>
+                <button
+                  className="attach-button"
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={session.phase !== 'connected'}
+                  aria-label="Send a file"
+                  title="Send a file up to 25 MB"
+                >
+                  <Paperclip size={19} />
+                </button>
+                <textarea
+                  value={draft}
+                  onChange={(event) => updateDraft(event.target.value)}
+                  onKeyDown={keyDown}
+                  onBlur={() => session.sendTyping(false)}
+                  placeholder={session.phase === 'connected' ? 'Write a direct message' : 'Connect to begin messaging'}
+                  disabled={session.phase !== 'connected'}
+                  maxLength={4000}
+                  rows={1}
+                  aria-label="Message"
+                />
+                <button
+                  className="voice-button"
+                  type="button"
+                  onClick={() => void voice.start()}
+                  disabled={session.phase !== 'connected'}
+                  aria-label="Record a voice message"
+                  title="Record voice message"
+                >
+                  <Mic size={19} />
+                </button>
+                <button className="send-button" type="submit" disabled={session.phase !== 'connected' || !draft.trim()} aria-label="Send message">
+                  <ArrowUp size={19} />
+                </button>
+              </>
+            )}
           </form>
         </section>
 

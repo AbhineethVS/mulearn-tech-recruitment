@@ -15,6 +15,7 @@ import {
   type ConnectionRoute,
 } from '../lib/peer-connection'
 import { SignalClient } from '../lib/signaling'
+import { MAX_VOICE_DURATION_MS } from './useVoiceRecorder'
 import type {
   ChatMessage,
   ConnectionEvent,
@@ -66,12 +67,23 @@ const isFileControl = (value: unknown): value is FileControlEnvelope => {
   }
   return (
     item.kind === 'file_meta' &&
+    (item.category === 'file' || item.category === 'voice') &&
     typeof item.transferId === 'string' &&
     typeof item.name === 'string' &&
     typeof item.size === 'number' &&
     item.size >= 0 &&
     item.size <= MAX_FILE_SIZE &&
-    typeof item.mimeType === 'string'
+    typeof item.mimeType === 'string' &&
+    (item.category === 'file' ||
+      (item.mimeType.startsWith('audio/') &&
+        typeof item.durationMs === 'number' &&
+        item.durationMs > 0 &&
+        item.durationMs <= MAX_VOICE_DURATION_MS &&
+        Array.isArray(item.waveform) &&
+        item.waveform.length <= 64 &&
+        item.waveform.every(
+          (level) => typeof level === 'number' && Number.isFinite(level) && level >= 0 && level <= 1,
+        )))
   )
 }
 
@@ -100,6 +112,9 @@ export function usePeerSession() {
     name: string
     size: number
     mimeType: string
+    category: 'file' | 'voice'
+    durationMs?: number
+    waveform?: number[]
     chunks: ArrayBuffer[]
     received: number
   } | null>(null)
@@ -185,6 +200,9 @@ export function usePeerSession() {
             name: control.name,
             size: control.size,
             mimeType: control.mimeType,
+            category: control.category,
+            durationMs: control.category === 'voice' ? control.durationMs : undefined,
+            waveform: control.category === 'voice' ? control.waveform : undefined,
             chunks: [],
             received: 0,
           }
@@ -192,8 +210,11 @@ export function usePeerSession() {
             ...current,
             {
               id: control.transferId,
+              category: control.category,
               name: control.name,
               size: control.size,
+              durationMs: control.category === 'voice' ? control.durationMs : undefined,
+              waveform: control.category === 'voice' ? control.waveform : undefined,
               progress: 0,
               direction: 'incoming',
               status: 'transferring',
@@ -215,7 +236,11 @@ export function usePeerSession() {
         transferUrlsRef.current.add(url)
         updateTransfer(incoming.id, { status: 'complete', progress: 100, url })
         incomingFileRef.current = null
-        addEvent('File received', `${incoming.name} arrived directly from your peer.`, 'success')
+        addEvent(
+          incoming.category === 'voice' ? 'Voice note received' : 'File received',
+          `${incoming.name} arrived over the WebRTC data channel.`,
+          'success',
+        )
       } catch {
         // Ignore malformed peer payloads without disrupting the channel.
       }
@@ -558,38 +583,68 @@ export function usePeerSession() {
     }
   }, [])
 
-  const sendFile = useCallback(
-    async (file: File) => {
+  const sendTransfer = useCallback(
+    async ({
+      blob,
+      name,
+      category,
+      durationMs,
+      waveform,
+    }: {
+      blob: Blob
+      name: string
+      category: 'file' | 'voice'
+      durationMs?: number
+      waveform?: number[]
+    }) => {
       const channel = fileChannelRef.current
       if (channel?.readyState !== 'open') throw new Error('The file channel is not connected.')
-      if (file.size > MAX_FILE_SIZE) throw new Error('Choose a file smaller than 25 MB.')
+      if (blob.size > MAX_FILE_SIZE) throw new Error('Choose a file smaller than 25 MB.')
 
       const id = crypto.randomUUID()
+      const localUrl = category === 'voice' ? URL.createObjectURL(blob) : undefined
+      if (localUrl) transferUrlsRef.current.add(localUrl)
       setTransfers((current) => [
         ...current,
         {
           id,
-          name: file.name,
-          size: file.size,
+          category,
+          name,
+          size: blob.size,
+          durationMs,
+          waveform,
           progress: 0,
           direction: 'outgoing',
           status: 'transferring',
+          url: localUrl,
         },
       ])
-      channel.send(
-        JSON.stringify({
+      const metadata: FileControlEnvelope =
+        category === 'voice'
+          ? {
+              kind: 'file_meta',
+              category,
+              transferId: id,
+              name,
+              size: blob.size,
+              mimeType: blob.type || 'audio/webm',
+              durationMs: durationMs ?? 0,
+              waveform: waveform ?? [],
+            }
+          : {
           kind: 'file_meta',
+              category,
           transferId: id,
-          name: file.name,
-          size: file.size,
-          mimeType: file.type || 'application/octet-stream',
-        } satisfies FileControlEnvelope),
-      )
+              name,
+              size: blob.size,
+              mimeType: blob.type || 'application/octet-stream',
+            }
+      channel.send(JSON.stringify(metadata))
 
       try {
         let sent = 0
         let lastProgress = -1
-        while (sent < file.size) {
+        while (sent < blob.size) {
           if (cancelledTransfersRef.current.has(id)) {
             cancelledTransfersRef.current.delete(id)
             channel.send(JSON.stringify({ kind: 'file_cancel', transferId: id }))
@@ -597,10 +652,10 @@ export function usePeerSession() {
             return
           }
           await waitForChannelBuffer(channel)
-          const chunk = await file.slice(sent, sent + FILE_CHUNK_SIZE).arrayBuffer()
+          const chunk = await blob.slice(sent, sent + FILE_CHUNK_SIZE).arrayBuffer()
           channel.send(chunk)
           sent += chunk.byteLength
-          const progress = Math.round((sent / file.size) * 100)
+          const progress = Math.round((sent / blob.size) * 100)
           if (progress !== lastProgress) {
             lastProgress = progress
             updateTransfer(id, { progress })
@@ -608,13 +663,49 @@ export function usePeerSession() {
         }
         channel.send(JSON.stringify({ kind: 'file_done', transferId: id }))
         updateTransfer(id, { status: 'complete', progress: 100 })
-        addEvent('File sent', `${file.name} travelled over the direct data channel.`, 'success')
+        addEvent(
+          category === 'voice' ? 'Voice note sent' : 'File sent',
+          `${name} travelled over the WebRTC data channel.`,
+          'success',
+        )
       } catch {
         updateTransfer(id, { status: 'failed' })
         throw new Error('The file transfer was interrupted.')
       }
     },
     [addEvent, updateTransfer],
+  )
+
+  const sendFile = useCallback(
+    (file: File) =>
+      sendTransfer({
+        blob: file,
+        name: file.name,
+        category: 'file',
+      }),
+    [sendTransfer],
+  )
+
+  const sendVoice = useCallback(
+    (blob: Blob, durationMs: number, waveform: number[]) => {
+      if (!blob.type.startsWith('audio/')) throw new Error('The recording format is invalid.')
+      if (durationMs <= 0 || durationMs > MAX_VOICE_DURATION_MS) {
+        throw new Error('Voice notes can be up to two minutes long.')
+      }
+      const extension = blob.type.includes('mp4')
+        ? 'm4a'
+        : blob.type.includes('ogg')
+          ? 'ogg'
+          : 'webm'
+      return sendTransfer({
+        blob,
+        name: `Voice message.${extension}`,
+        category: 'voice',
+        durationMs,
+        waveform,
+      })
+    },
+    [sendTransfer],
   )
 
   const cancelTransfer = useCallback((id: string) => {
@@ -650,6 +741,7 @@ export function usePeerSession() {
     sendMessage,
     sendTyping,
     sendFile,
+    sendVoice,
     cancelTransfer,
   }
 }
