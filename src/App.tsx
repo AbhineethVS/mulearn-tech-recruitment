@@ -73,6 +73,20 @@ function Brand() {
   )
 }
 
+function PwaInstallButton({ pwa }: { pwa: ReturnType<typeof usePwa> }) {
+  if (!pwa.installAvailable) return null
+  return (
+    <button
+      className="install-nav-button"
+      type="button"
+      onClick={() => void pwa.requestInstall()}
+    >
+      <Download size={16} />
+      <span>Install app</span>
+    </button>
+  )
+}
+
 function Landing({
   roomInput,
   onRoomInput,
@@ -81,6 +95,7 @@ function Landing({
   busy,
   error,
   online,
+  pwa,
 }: {
   roomInput: string
   onRoomInput: (value: string) => void
@@ -89,6 +104,7 @@ function Landing({
   busy: boolean
   error: string
   online: boolean
+  pwa: ReturnType<typeof usePwa>
 }) {
   const submit = (event: FormEvent) => {
     event.preventDefault()
@@ -99,7 +115,10 @@ function Landing({
     <div className="landing-shell">
       <header className="landing-header">
         <Brand />
-        <span className="protocol-chip"><Radio size={15} /> WebRTC data channel</span>
+        <div className="landing-header-actions">
+          <PwaInstallButton pwa={pwa} />
+          <span className="protocol-chip"><Radio size={15} /> WebRTC data channel</span>
+        </div>
       </header>
 
       <main className="landing-main">
@@ -244,7 +263,13 @@ function TransferItem({
   )
 }
 
-function ChatWorkspace({ session }: { session: ReturnType<typeof usePeerSession> }) {
+function ChatWorkspace({
+  session,
+  pwa,
+}: {
+  session: ReturnType<typeof usePeerSession>
+  pwa: ReturnType<typeof usePwa>
+}) {
   const [draft, setDraft] = useState('')
   const [copyState, setCopyState] = useState<'idle' | 'copied'>('idle')
   const [fileError, setFileError] = useState('')
@@ -330,10 +355,13 @@ function ChatWorkspace({ session }: { session: ReturnType<typeof usePeerSession>
             {copyState === 'copied' ? 'Copied' : 'Copy invite'}
           </button>
         </div>
-        <button className="leave-button" type="button" onClick={leaveRoom}>
-          <Unplug size={17} />
-          Leave
-        </button>
+        <div className="workspace-actions">
+          <PwaInstallButton pwa={pwa} />
+          <button className="leave-button" type="button" onClick={leaveRoom}>
+            <Unplug size={17} />
+            <span>Leave</span>
+          </button>
+        </div>
       </header>
 
       <ConnectionRail phase={session.phase} route={session.route} />
@@ -509,22 +537,27 @@ function PwaNotice({ pwa }: { pwa: ReturnType<typeof usePwa> }) {
     )
   }
 
-  if (pwa.canInstall) {
+  if (pwa.showInstallNotice && !pwa.showIosHint) {
     return (
       <aside className="pwa-notice" role="status">
         <Download size={19} />
         <div><b>Install P4Pair</b><span>Open it like an app on this device.</span></div>
-        <button type="button" onClick={() => void pwa.install()}>Install</button>
+        <div className="pwa-notice-actions">
+          <button type="button" onClick={() => void pwa.requestInstall()}>Install</button>
+          <button className="pwa-dismiss" type="button" onClick={pwa.dismissInstallNotice} aria-label="Dismiss install prompt">
+            <X size={17} />
+          </button>
+        </div>
       </aside>
     )
   }
 
-  if (pwa.showIosHint) {
+  if (pwa.showInstallNotice && pwa.showIosHint) {
     return (
       <aside className="pwa-notice" role="status">
         <Download size={19} />
         <div><b>Install on this device</b><span>In Safari, tap Share, then “Add to Home Screen.”</span></div>
-        <button className="pwa-dismiss" type="button" onClick={pwa.dismissIosHint} aria-label="Dismiss install guidance">
+        <button className="pwa-dismiss" type="button" onClick={pwa.dismissInstallNotice} aria-label="Dismiss install guidance">
           <X size={17} />
         </button>
       </aside>
@@ -553,7 +586,7 @@ export default function App() {
       </div>
     )
   } else if (session.roomCode) {
-    content = <ChatWorkspace session={session} />
+    content = <ChatWorkspace session={session} pwa={pwa} />
   } else {
     content = (
       <Landing
@@ -564,6 +597,7 @@ export default function App() {
         busy={session.phase === 'signaling'}
         error={session.error}
         online={pwa.online}
+        pwa={pwa}
       />
     )
   }

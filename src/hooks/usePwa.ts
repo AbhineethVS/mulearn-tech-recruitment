@@ -10,6 +10,7 @@ export function usePwa() {
   const [updateWorker, setUpdateWorker] = useState<ServiceWorker | null>(null)
   const [online, setOnline] = useState(navigator.onLine)
   const [iosHintDismissed, setIosHintDismissed] = useState(false)
+  const [installNoticeDismissed, setInstallNoticeDismissed] = useState(false)
   const refreshingRef = useRef(false)
 
   const standalone = useMemo(
@@ -27,6 +28,7 @@ export function usePwa() {
     const handleInstallPrompt = (event: Event) => {
       event.preventDefault()
       setInstallPrompt(event as InstallPromptEvent)
+      setInstallNoticeDismissed(false)
     }
     const handleInstalled = () => setInstallPrompt(null)
     const handleOnline = () => setOnline(true)
@@ -66,12 +68,18 @@ export function usePwa() {
     }
   }, [])
 
-  const install = useCallback(async () => {
-    if (!installPrompt) return
-    await installPrompt.prompt()
-    await installPrompt.userChoice
-    setInstallPrompt(null)
-  }, [installPrompt])
+  const requestInstall = useCallback(async () => {
+    if (installPrompt) {
+      await installPrompt.prompt()
+      await installPrompt.userChoice
+      setInstallPrompt(null)
+      return
+    }
+    if (isIos) {
+      setIosHintDismissed(false)
+      setInstallNoticeDismissed(false)
+    }
+  }, [installPrompt, isIos])
 
   const applyUpdate = useCallback(() => {
     if (!updateWorker) return
@@ -79,13 +87,21 @@ export function usePwa() {
     updateWorker.postMessage({ type: 'SKIP_WAITING' })
   }, [updateWorker])
 
+  const canInstall = installPrompt !== null && !standalone
+  const installAvailable = canInstall || isIos
+
   return {
     online,
-    canInstall: installPrompt !== null && !standalone,
+    installAvailable,
+    showInstallNotice:
+      !installNoticeDismissed && (canInstall || (isIos && !iosHintDismissed)),
     showIosHint: isIos && !iosHintDismissed,
     updateAvailable: updateWorker !== null,
-    install,
+    requestInstall,
     applyUpdate,
-    dismissIosHint: () => setIosHintDismissed(true),
+    dismissInstallNotice: () => {
+      setInstallNoticeDismissed(true)
+      if (isIos) setIosHintDismissed(true)
+    },
   }
 }

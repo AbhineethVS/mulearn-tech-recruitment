@@ -138,6 +138,31 @@ button:disabled {
   color: var(--green);
 }
 
+.landing-header-actions,
+.workspace-actions {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+
+.install-nav-button {
+  display: inline-flex;
+  min-height: 40px;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 0 11px;
+  border: 1px solid var(--blue);
+  background: transparent;
+  color: var(--blue-dark);
+  font-size: 0.79rem;
+  font-weight: 700;
+}
+
+.install-nav-button:hover {
+  background: var(--blue-soft);
+}
+
 .landing-main {
   display: grid;
   width: min(1180px, calc(100% - 48px));
@@ -505,6 +530,10 @@ button:disabled {
 .leave-button {
   justify-self: end;
   padding: 0 13px;
+}
+
+.workspace-actions {
+  justify-self: end;
 }
 
 .leave-button:hover {
@@ -1146,6 +1175,12 @@ button:disabled {
   color: var(--ink);
 }
 
+.pwa-notice .pwa-notice-actions {
+  display: flex;
+  grid-template-columns: none;
+  gap: 7px;
+}
+
 .pwa-offline {
   border-color: #d49b96;
   background: var(--red-soft);
@@ -1203,6 +1238,19 @@ button:disabled {
   .protocol-chip::after {
     font-size: 0.68rem;
     content: 'WebRTC';
+  }
+
+  .landing-header-actions {
+    gap: 6px;
+  }
+
+  .install-nav-button {
+    width: 40px;
+    padding: 0;
+  }
+
+  .install-nav-button span {
+    display: none;
   }
 
   .landing-main {
@@ -1270,6 +1318,10 @@ button:disabled {
   .leave-button {
     width: 40px;
     padding: 0;
+  }
+
+  .workspace-actions {
+    gap: 6px;
   }
 
   .connection-rail {
