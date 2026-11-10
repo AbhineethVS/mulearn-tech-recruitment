@@ -25,6 +25,28 @@ describe('peer profiles', () => {
   })
 })
 
+describe('private call controls', () => {
+  const callId = '123e4567-e89b-12d3-a456-426614174000'
+
+  it('accepts typed call controls on the peer channel', () => {
+    expect(
+      isPeerEnvelope({ kind: 'call_invite', callId, sentAt: new Date().toISOString() }),
+    ).toBe(true)
+    expect(isPeerEnvelope({ kind: 'call_accept', callId })).toBe(true)
+    expect(isPeerEnvelope({ kind: 'call_ready', callId })).toBe(true)
+    expect(isPeerEnvelope({ kind: 'call_decline', callId, reason: 'declined' })).toBe(true)
+    expect(isPeerEnvelope({ kind: 'call_cancel', callId })).toBe(true)
+    expect(isPeerEnvelope({ kind: 'call_end', callId, reason: 'hangup' })).toBe(true)
+    expect(isPeerEnvelope({ kind: 'call_mute', callId, muted: true })).toBe(true)
+  })
+
+  it('rejects injected malformed call controls', () => {
+    expect(isPeerEnvelope({ kind: 'call_invite', callId, sentAt: 'yesterday' })).toBe(false)
+    expect(isPeerEnvelope({ kind: 'call_mute', callId, muted: 1 })).toBe(false)
+    expect(isPeerEnvelope({ kind: 'call_end', callId: '../../room' })).toBe(false)
+  })
+})
+
 describe('replies and reactions', () => {
   it('accepts bounded replies and the supported reaction set', () => {
     expect(

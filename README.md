@@ -14,6 +14,7 @@ them over WebRTC data channels.
 - Single-tick sent, double-tick delivered, and blue-tick seen receipts sent peer to peer
 - Quoted message replies and emoji reactions sent peer to peer
 - Author-controlled message editing and cooperative deletion
+- One-to-one private voice calls with incoming-call consent, mute, duration, and hang-up controls
 - Two-minute private-room voice messages with live and playback waveforms
 - Private-room files up to 25 MB with chunking, backpressure, progress, cancellation, and downloads
 - Peer display names exchanged over the data channel rather than stored by signaling
@@ -25,8 +26,9 @@ them over WebRTC data channels.
 - Installable PWA shell with explicit offline and update states
 - Responsive, keyboard-accessible interface
 
-The signaling server does not receive chat text, voice recordings, or file bytes. Conversation
-content is held only in the open pages and disappears when the page closes.
+The signaling server does not receive chat text, call controls, live audio, voice recordings, or
+file bytes. Conversation content is held only in the open pages and disappears when the page
+closes.
 
 ## Stack
 
@@ -129,6 +131,11 @@ Once the `chat` and `files` data channels open, their payloads move between brow
 encrypts data channels with DTLS. P4Pair accurately describes this as encrypted in transit; it does
 not claim verified peer identity because fingerprints are not authenticated out of band.
 
+Private rooms also pre-negotiate an audio transceiver without requesting microphone permission.
+Call invitations and lifecycle controls use the peer data channel. After both people consent, each
+browser attaches its microphone with `RTCRtpSender.replaceTrack()`; live audio then uses the
+WebRTC media path and never passes through the signaling WebSocket.
+
 ## Quality checks
 
 ```bash
@@ -143,7 +150,7 @@ production builds.
 - `shared/protocol.ts` — signaling message types and runtime validation
 - `server/room-manager.ts` — ephemeral private and four-person group rooms
 - `server/index.ts` — HTTP, WebSocket signaling, origin checks, and heartbeat cleanup
-- `src/hooks/usePeerSession.ts` — WebRTC state machine, chat, and files
+- `src/hooks/usePeerSession.ts` — WebRTC state machine, chat, files, and private calls
 - `src/hooks/usePwa.ts` — installation, updates, and connectivity state
 - `src/App.tsx` — room and conversation interface
 - `docs/ARCHITECTURE.md` — data flow, boundaries, and trade-offs
@@ -156,5 +163,5 @@ production builds.
   sessions.
 - There is no TURN service configured by default.
 - Refreshing a page clears its local messages and files.
-- Group rooms are text-only; files and voice notes remain private-room features.
+- Group rooms are text-only; files, voice notes, and live calls remain private-room features.
 - Four-person groups use a full mesh, so larger rooms are intentionally unsupported.

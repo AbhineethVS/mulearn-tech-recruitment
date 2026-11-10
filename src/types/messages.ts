@@ -31,6 +31,34 @@ export type PeerEnvelope =
   | { kind: 'message_edit'; messageId: string; text: string; editedAt: string }
   | { kind: 'message_delete'; messageId: string; deletedAt: string }
   | { kind: 'typing'; active: boolean }
+  | { kind: 'call_invite'; callId: string; sentAt: string }
+  | { kind: 'call_accept'; callId: string }
+  | { kind: 'call_ready'; callId: string }
+  | { kind: 'call_decline'; callId: string; reason?: string }
+  | { kind: 'call_cancel'; callId: string }
+  | { kind: 'call_end'; callId: string; reason?: string }
+  | { kind: 'call_mute'; callId: string; muted: boolean }
+
+export type CallEnvelope = Extract<PeerEnvelope, { kind: `call_${string}` }>
+
+export type LiveCallPhase =
+  | 'idle'
+  | 'outgoing_ringing'
+  | 'incoming_ringing'
+  | 'connecting'
+  | 'active'
+  | 'failed'
+
+export type LiveCallState = {
+  phase: LiveCallPhase
+  callId: string
+  peerId: string
+  peerName: string
+  startedAt: number | null
+  muted: boolean
+  remoteMuted: boolean
+  error: string
+}
 
 export type FileControlEnvelope =
   | {

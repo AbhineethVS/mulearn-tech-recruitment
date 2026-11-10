@@ -50,17 +50,34 @@ two-tab testing while allowing a restarted mobile browser to reclaim its own sta
 
 `chat` is a reliable ordered channel carrying JSON envelopes for text, quoted replies, emoji
 reactions, edits, deletion tombstones, peer display names, delivery acknowledgements, seen
-receipts, and typing state. Group messages fan out over every open pairwise channel. Display names
-and message interactions therefore remain peer content and are not stored by signaling. One tick
-means the local browser wrote the message to all intended channels, two ticks mean every intended
-peer acknowledged it, and blue ticks mean every intended peer displayed the conversation in a
-visible, focused page. The receipt tooltip exposes partial group progress.
+receipts, typing state, and private call controls. Group messages fan out over every open pairwise
+channel. Display names, message interactions, and call invitations therefore remain peer content
+and are not stored by signaling. One tick means the local browser wrote the message to all
+intended channels, two ticks mean every intended peer acknowledged it, and blue ticks mean every
+intended peer displayed the conversation in a visible, focused page. The receipt tooltip exposes
+partial group progress.
 
 Private rooms also create `files`, a separate reliable ordered channel so binary buffering does not
 share the chat protocol. Files are capped at 25 MB, split into 16 KiB binary chunks, and paused when the channel
 buffer crosses its threshold. Voice messages use this same bounded transfer path with typed voice
 metadata, a browser-selected audio codec, a two-minute recording limit, and waveform samples for
 the interface. Audio bytes never enter signaling or the service-worker cache.
+
+## Private voice calls
+
+Private links add one `sendrecv` audio transceiver before their initial offer. It has no local
+track, so establishing a room does not activate hardware or request permission. On call acceptance,
+each browser requests echo-cancelled, noise-suppressed audio and attaches it with
+`RTCRtpSender.replaceTrack()`. This avoids a second SDP exchange, offer glare, and disturbance to
+the existing data channels. Live audio follows the selected WebRTC media route; it is not encoded
+inside a WebSocket or data-channel message.
+
+Typed `call_invite`, `call_accept`, `call_ready`, decline, cancel, end, and mute envelopes use the
+ordered `chat` data channel. A call ID rejects stale controls. If invitations cross, the lower peer
+ID keeps its outgoing invitation and the other browser adopts it as incoming. A media-generation
+counter invalidates late permission results after cancellation. Hang-up, peer departure, retry,
+hard connection failure, room leave, and component cleanup all detach the sender and stop local
+tracks. Group rooms neither create audio transceivers nor accept call controls.
 
 After ICE connects, the client reads the selected candidate pair through `RTCPeerConnection`
 statistics. Host-only pairs are shown as direct host routes, server-reflexive pairs as direct STUN

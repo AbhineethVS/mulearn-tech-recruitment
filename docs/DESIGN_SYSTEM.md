@@ -37,6 +37,11 @@ collection of unrelated cards.
 - The interface has no horizontal overflow at 375 px
 - Invitation QR codes live in one structural dialog/bottom sheet with native Share and copy
   fallback; the QR is functional content, not decoration
+- Private voice calls keep the conversation visible: incoming consent uses a focused dialog, while
+  ringing and active states use a compact structural bar with duration, route quality, mute, and
+  hang-up controls
+- Live call and voice-note capture are mutually exclusive, and blocked remote autoplay exposes a
+  visible Play audio recovery action
 
 ## Voice
 

@@ -41,6 +41,7 @@ import {
 } from 'react'
 import { normalizeRoomCode, type RoomType } from '../shared/protocol'
 import { InviteDialog } from './components/InviteDialog'
+import { VoiceCallPanel } from './components/VoiceCallPanel'
 import { usePeerSession, type SessionPeer, type SessionPhase } from './hooks/usePeerSession'
 import { usePwa } from './hooks/usePwa'
 import { useVoiceRecorder } from './hooks/useVoiceRecorder'
@@ -861,19 +862,44 @@ function ChatWorkspace({
         onClose={() => setInviteOpen(false)}
       />
 
-      <ConnectionRail
-        phase={session.phase}
-        route={session.route}
-        localName={session.displayName.trim()}
-        peerName={session.peerName}
-        roomType={session.roomType}
-        peers={session.peers}
-        detailsOpen={detailsOpen}
-        onToggleDetails={(selectedPeerId) => {
-          setSelectedDetailPeerId(selectedPeerId)
-          setDetailsOpen((current) => !current || selectedDetailPeerId !== selectedPeerId)
-        }}
-      />
+      <div className="connection-zone">
+        <ConnectionRail
+          phase={session.phase}
+          route={session.route}
+          localName={session.displayName.trim()}
+          peerName={session.peerName}
+          roomType={session.roomType}
+          peers={session.peers}
+          detailsOpen={detailsOpen}
+          onToggleDetails={(selectedPeerId) => {
+            setSelectedDetailPeerId(selectedPeerId)
+            setDetailsOpen((current) => !current || selectedDetailPeerId !== selectedPeerId)
+          }}
+        />
+        {session.roomType === 'private' && (
+          <VoiceCallPanel
+            call={session.call}
+            remoteStream={session.remoteCallStream}
+            route={session.route}
+            quality={session.quality}
+            connected={session.phase === 'connected'}
+            recordingVoiceNote={voice.recording}
+            onStart={() => {
+              setFileError('')
+              session.startCall()
+            }}
+            onAccept={() => {
+              if (voice.recording) voice.cancel()
+              void session.acceptCall()
+            }}
+            onDecline={session.declineCall}
+            onCancel={session.cancelCall}
+            onEnd={session.endCall}
+            onToggleMute={session.toggleCallMute}
+            onDismissError={session.dismissCallError}
+          />
+        )}
+      </div>
       {detailsOpen && (
         <ConnectionDetails
           session={session}
@@ -1120,9 +1146,17 @@ function ChatWorkspace({
                     setDraft('')
                     void voice.start()
                   }}
-                    disabled={session.phase !== 'connected' || session.roomType === 'group'}
+                    disabled={
+                      session.phase !== 'connected' ||
+                      session.roomType === 'group' ||
+                      (session.call.phase !== 'idle' && session.call.phase !== 'failed')
+                    }
                     aria-label="Record a voice message"
-                    title="Record voice message"
+                    title={
+                      session.call.phase !== 'idle' && session.call.phase !== 'failed'
+                        ? 'End the live call before recording a voice message'
+                        : 'Record voice message'
+                    }
                   >
                     <Mic size={19} />
                   </button>

@@ -526,7 +526,7 @@ button:disabled {
   height: 100vh;
   height: 100dvh;
   min-height: 0;
-  grid-template-rows: 70px 82px minmax(0, 1fr);
+  grid-template-rows: 70px auto minmax(0, 1fr);
   overflow: hidden;
   background: var(--canvas);
 }
@@ -602,6 +602,7 @@ button:disabled {
   padding: 0 32px;
   border-bottom: 1px solid var(--line-strong);
   background: #e5e9e7;
+  min-height: 82px;
 }
 
 .group-connection-rail {
@@ -612,6 +613,228 @@ button:disabled {
   padding: 0 32px;
   border-bottom: 1px solid var(--line-strong);
   background: #e5e9e7;
+  min-height: 82px;
+}
+
+.connection-zone {
+  position: relative;
+  display: grid;
+  min-width: 0;
+}
+
+.connection-zone > audio {
+  display: none;
+}
+
+.call-launch-row {
+  display: flex;
+  min-height: 48px;
+  align-items: center;
+  justify-content: flex-end;
+  padding: 0 32px;
+  border-bottom: 1px solid var(--line-strong);
+  background: var(--paper);
+}
+
+.call-launch,
+.call-control,
+.call-play-audio,
+.incoming-call-actions button,
+.call-error button {
+  display: inline-flex;
+  min-height: 40px;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  border: 1px solid var(--line-strong);
+  background: var(--paper);
+  color: var(--ink);
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.call-launch {
+  min-width: 132px;
+  min-height: 44px;
+  border-color: #78ad9e;
+  background: var(--green-soft);
+  color: var(--green);
+}
+
+.call-launch:disabled {
+  border-color: var(--line);
+  background: var(--canvas);
+  color: var(--faint);
+}
+
+.live-call-bar {
+  display: grid;
+  min-height: 58px;
+  grid-template-columns: auto minmax(120px, 1fr) auto auto auto auto;
+  gap: 10px;
+  align-items: center;
+  padding: 7px 32px;
+  border-bottom: 1px solid #78ad9e;
+  background: var(--green-soft);
+}
+
+.live-call-symbol,
+.incoming-call-icon {
+  display: grid;
+  width: 38px;
+  height: 38px;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--green);
+  color: white;
+}
+
+.live-call-copy {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.live-call-copy b {
+  overflow: hidden;
+  font-size: 0.8rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.live-call-copy span,
+.remote-muted {
+  color: #396a5e;
+  font-size: 0.68rem;
+}
+
+.remote-muted {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  white-space: nowrap;
+}
+
+.call-control {
+  width: 42px;
+  height: 42px;
+  min-height: 42px;
+  padding: 0;
+}
+
+.call-control.control-muted {
+  border-color: #d6b06b;
+  background: #fff8e7;
+  color: #76500b;
+}
+
+.call-control.control-end,
+.call-decline {
+  border-color: var(--red);
+  background: var(--red);
+  color: white;
+}
+
+.call-play-audio {
+  border-color: var(--blue);
+  color: var(--blue-dark);
+}
+
+.call-error {
+  display: grid;
+  min-height: 52px;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 9px;
+  align-items: center;
+  padding: 7px 32px;
+  border-bottom: 1px solid #d49b96;
+  background: var(--red-soft);
+  color: var(--red);
+}
+
+.call-error span {
+  display: grid;
+  gap: 1px;
+  font-size: 0.7rem;
+}
+
+.call-error b {
+  font-size: 0.78rem;
+}
+
+.call-error button {
+  width: 40px;
+  padding: 0;
+  color: var(--red);
+}
+
+.call-dialog-backdrop {
+  position: fixed;
+  z-index: 50;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: rgba(20, 32, 35, 0.58);
+}
+
+.incoming-call-dialog {
+  display: grid;
+  width: min(100%, 390px);
+  justify-items: center;
+  padding: 28px;
+  border: 1px solid var(--line-strong);
+  background: var(--paper);
+  box-shadow: 9px 9px 0 rgba(20, 32, 35, 0.2);
+  text-align: center;
+}
+
+.incoming-call-dialog small {
+  margin-top: 16px;
+  color: var(--green);
+  font-family: var(--mono);
+  font-size: 0.63rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.incoming-call-dialog h2 {
+  margin: 5px 0 7px;
+  font-size: 1.35rem;
+}
+
+.incoming-call-dialog p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.incoming-call-actions {
+  display: grid;
+  width: 100%;
+  grid-template-columns: 1fr 1fr;
+  gap: 9px;
+  margin-top: 24px;
+}
+
+.incoming-call-actions button {
+  min-height: 46px;
+}
+
+.incoming-call-actions .call-accept {
+  border-color: var(--green);
+  background: var(--green);
+  color: white;
+}
+
+.call-launch:focus-visible,
+.call-control:focus-visible,
+.call-play-audio:focus-visible,
+.incoming-call-actions button:focus-visible,
+.call-error button:focus-visible {
+  outline: 3px solid var(--blue);
+  outline-offset: 2px;
 }
 
 .group-rail-summary {
@@ -2153,7 +2376,7 @@ button.group-participant:hover {
   }
 
   .workspace-shell {
-    grid-template-rows: 64px 68px minmax(0, 1fr);
+    grid-template-rows: 64px auto minmax(0, 1fr);
   }
 
   .workspace-header {
@@ -2191,12 +2414,60 @@ button.group-participant:hover {
 
   .connection-rail {
     grid-template-columns: auto 1fr auto;
+    min-height: 68px;
     padding: 0 14px;
   }
 
   .group-connection-rail {
+    min-height: 68px;
     gap: 7px;
     padding: 0 8px;
+  }
+
+  .call-launch-row {
+    min-height: 50px;
+    padding: 0 10px;
+  }
+
+  .call-launch {
+    width: 100%;
+    min-height: 44px;
+  }
+
+  .live-call-bar {
+    min-height: 58px;
+    grid-template-columns: auto minmax(0, 1fr) auto auto;
+    gap: 7px;
+    padding: 7px 10px;
+  }
+
+  .live-call-symbol {
+    width: 34px;
+    height: 34px;
+  }
+
+  .remote-muted {
+    display: none;
+  }
+
+  .call-play-audio {
+    grid-column: 2 / -1;
+    grid-row: 2;
+    min-height: 34px;
+  }
+
+  .call-error {
+    padding: 7px 10px;
+  }
+
+  .call-dialog-backdrop {
+    align-items: end;
+    padding: 12px;
+  }
+
+  .incoming-call-dialog {
+    padding: 24px 18px;
+    box-shadow: 7px 7px 0 rgba(20, 32, 35, 0.2);
   }
 
   .group-rail-summary {

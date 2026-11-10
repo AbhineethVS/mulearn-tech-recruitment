@@ -17,16 +17,26 @@ import {
   type ConnectionQuality,
   type ConnectionRoute,
 } from '../lib/peer-connection'
+import {
+  callControlMatches,
+  IDLE_CALL,
+  isCallEnvelope,
+  localInviteWins,
+  mediaRequestIsCurrent,
+  microphoneErrorMessage,
+} from '../lib/live-call'
 import { SignalClient } from '../lib/signaling'
 import { MAX_VOICE_DURATION_MS } from './useVoiceRecorder'
 import type {
   ChatMessage,
+  CallEnvelope,
   ConnectionEvent,
   EmojiReaction,
   FileControlEnvelope,
   FileTransfer,
   PeerEnvelope,
   ReplyReference,
+  LiveCallState,
 } from '../types/messages'
 
 export type SessionPhase =
@@ -57,6 +67,7 @@ type PeerLink = SessionPeer & {
   remoteCandidates: string[]
   turnConfigured: boolean
   qualityTimer: number | null
+  audioSender: RTCRtpSender | null
 }
 
 const MAX_MESSAGE_LENGTH = 4_000
@@ -168,6 +179,9 @@ export const isPeerEnvelope = (value: unknown): value is PeerEnvelope => {
       Number.isFinite(Date.parse(item.deletedAt))
     )
   }
+  if (typeof item.kind === 'string' && item.kind.startsWith('call_')) {
+    return isCallEnvelope(item)
+  }
   if (item.kind === 'typing') return typeof item.active === 'boolean'
   return (
     item.kind === 'chat' &&
@@ -232,6 +246,8 @@ export function usePeerSession() {
     }
   })
   const [peerName, setPeerName] = useState('')
+  const [call, setCall] = useState<LiveCallState>(IDLE_CALL)
+  const [remoteCallStream, setRemoteCallStream] = useState<MediaStream | null>(null)
 
   const signalRef = useRef<SignalClient | null>(null)
   const linksRef = useRef(new Map<string, PeerLink>())
@@ -257,11 +273,124 @@ export function usePeerSession() {
   const displayNameRef = useRef(displayName)
   const pendingRoomCodeRef = useRef('')
   const resumeAttemptedRef = useRef(false)
+  const callRef = useRef<LiveCallState>(IDLE_CALL)
+  const localCallStreamRef = useRef<MediaStream | null>(null)
+  const mediaGenerationRef = useRef(0)
 
   const changePhase = useCallback((next: SessionPhase) => {
     phaseRef.current = next
     setPhase(next)
   }, [])
+
+  const changeCall = useCallback((next: LiveCallState) => {
+    callRef.current = next
+    setCall(next)
+  }, [])
+
+  const sendCallControl = useCallback((remotePeerId: string, envelope: CallEnvelope) => {
+    const channel = linksRef.current.get(remotePeerId)?.chatChannel
+    if (channel?.readyState !== 'open') return false
+    channel.send(JSON.stringify(envelope))
+    return true
+  }, [])
+
+  const detachLocalAudio = useCallback(() => {
+    mediaGenerationRef.current += 1
+    const stream = localCallStreamRef.current
+    localCallStreamRef.current = null
+    stream?.getTracks().forEach((track) => track.stop())
+    for (const link of linksRef.current.values()) {
+      if (link.audioSender) void link.audioSender.replaceTrack(null).catch(() => undefined)
+    }
+  }, [])
+
+  const clearCall = useCallback((failure = '') => {
+    detachLocalAudio()
+    changeCall(
+      failure
+        ? {
+            ...IDLE_CALL,
+            phase: 'failed',
+            error: failure,
+          }
+        : IDLE_CALL,
+    )
+  }, [changeCall, detachLocalAudio])
+
+  const acquireLocalAudio = useCallback(async (callId: string, remotePeerId: string) => {
+    const generation = mediaGenerationRef.current + 1
+    mediaGenerationRef.current = generation
+    let stream: MediaStream | null = null
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+        },
+      })
+      if (
+        !mediaRequestIsCurrent(
+          generation,
+          mediaGenerationRef.current,
+          callRef.current,
+          callId,
+          remotePeerId,
+        )
+      ) {
+        stream.getTracks().forEach((track) => track.stop())
+        return false
+      }
+      const link = linksRef.current.get(remotePeerId)
+      const sender =
+        link?.audioSender ??
+        link?.connection
+          .getTransceivers()
+          .find((transceiver) => transceiver.receiver.track.kind === 'audio')?.sender ??
+        null
+      const track = stream.getAudioTracks()[0]
+      if (!link || !sender || !track) {
+        stream.getTracks().forEach((candidate) => candidate.stop())
+        throw new Error('The private audio route is not available.')
+      }
+      link.audioSender = sender
+      await sender.replaceTrack(track)
+      if (
+        !mediaRequestIsCurrent(
+          generation,
+          mediaGenerationRef.current,
+          callRef.current,
+          callId,
+          remotePeerId,
+        )
+      ) {
+        await sender.replaceTrack(null).catch(() => undefined)
+        stream.getTracks().forEach((candidate) => candidate.stop())
+        return false
+      }
+      localCallStreamRef.current = stream
+      track.addEventListener(
+        'ended',
+        () => {
+          const current = callRef.current
+          if (current.callId !== callId) return
+          sendCallControl(remotePeerId, {
+            kind: 'call_end',
+            callId,
+            reason: 'microphone_ended',
+          })
+          clearCall('The microphone stopped. Start a new call to reconnect it.')
+        },
+        { once: true },
+      )
+      return true
+    } catch (mediaError) {
+      stream?.getTracks().forEach((track) => track.stop())
+      if (generation !== mediaGenerationRef.current) return false
+      clearCall(microphoneErrorMessage(mediaError))
+      return false
+    }
+  }, [clearCall, sendCallControl])
 
   const syncPeers = useCallback(() => {
     const nextPeers = [...linksRef.current.values()].map(
@@ -319,13 +448,102 @@ export function usePeerSession() {
     for (const id of ids) pending?.delete(id)
   }, [])
 
+  const handleCallControl = useCallback(
+    (remotePeerId: string, envelope: CallEnvelope) => {
+      if (roomType !== 'private') return
+      const current = callRef.current
+
+      if (envelope.kind === 'call_invite') {
+        if (current.callId === envelope.callId) return
+        if (current.phase === 'idle' || current.phase === 'failed') {
+          changeCall({
+            ...IDLE_CALL,
+            phase: 'incoming_ringing',
+            callId: envelope.callId,
+            peerId: remotePeerId,
+            peerName: linksRef.current.get(remotePeerId)?.name || 'Peer',
+          })
+          return
+        }
+        if (
+          current.phase === 'outgoing_ringing' &&
+          current.peerId === remotePeerId &&
+          !localInviteWins(localPeerIdRef.current, remotePeerId)
+        ) {
+          sendCallControl(remotePeerId, { kind: 'call_cancel', callId: current.callId })
+          changeCall({
+            ...IDLE_CALL,
+            phase: 'incoming_ringing',
+            callId: envelope.callId,
+            peerId: remotePeerId,
+            peerName: linksRef.current.get(remotePeerId)?.name || 'Peer',
+          })
+          return
+        }
+        sendCallControl(remotePeerId, {
+          kind: 'call_decline',
+          callId: envelope.callId,
+          reason: 'busy',
+        })
+        return
+      }
+
+      if (!callControlMatches(current, remotePeerId, envelope)) return
+      if (envelope.kind === 'call_accept' && current.phase === 'outgoing_ringing') {
+        changeCall({ ...current, phase: 'connecting', error: '' })
+        void acquireLocalAudio(envelope.callId, remotePeerId).then((ready) => {
+          const activeCall = callRef.current
+          if (!ready) {
+            if (activeCall.phase === 'failed') {
+              sendCallControl(remotePeerId, {
+                kind: 'call_end',
+                callId: envelope.callId,
+                reason: 'microphone_unavailable',
+              })
+            }
+            return
+          }
+          if (activeCall.callId !== envelope.callId) return
+          sendCallControl(remotePeerId, { kind: 'call_ready', callId: envelope.callId })
+          changeCall({ ...activeCall, phase: 'active', startedAt: Date.now() })
+        })
+      } else if (envelope.kind === 'call_ready' && current.phase === 'connecting') {
+        changeCall({ ...current, phase: 'active', startedAt: Date.now() })
+      } else if (
+        envelope.kind === 'call_decline' &&
+        (current.phase === 'outgoing_ringing' || current.phase === 'connecting')
+      ) {
+        clearCall(
+          envelope.reason === 'busy'
+            ? `${current.peerName || 'Your peer'} is already handling another call.`
+            : `${current.peerName || 'Your peer'} declined the call.`,
+        )
+      } else if (
+        envelope.kind === 'call_cancel' &&
+        (current.phase === 'incoming_ringing' || current.phase === 'connecting')
+      ) {
+        clearCall('The incoming call was cancelled.')
+      } else if (envelope.kind === 'call_end') {
+        clearCall()
+      } else if (
+        envelope.kind === 'call_mute' &&
+        (current.phase === 'connecting' || current.phase === 'active')
+      ) {
+        changeCall({ ...current, remoteMuted: envelope.muted })
+      }
+    },
+    [acquireLocalAudio, changeCall, clearCall, roomType, sendCallControl],
+  )
+
   const handleChatMessage = useCallback(
     (remotePeerId: string, event: MessageEvent<string>) => {
       if (typeof event.data !== 'string') return
       try {
         const envelope = JSON.parse(event.data) as unknown
         if (!isPeerEnvelope(envelope)) return
-        if (envelope.kind === 'chat') {
+        if (isCallEnvelope(envelope)) {
+          handleCallControl(remotePeerId, envelope)
+        } else if (envelope.kind === 'chat') {
           setMessages((current) =>
             current.some((message) => message.id === envelope.id)
               ? current
@@ -464,7 +682,7 @@ export function usePeerSession() {
         // Ignore malformed peer payloads without disrupting the channel.
       }
     },
-    [sendSeen, syncPeers],
+    [handleCallControl, sendSeen, syncPeers],
   )
 
   const handleFileMessage = useCallback(
@@ -581,19 +799,27 @@ export function usePeerSession() {
     [addEvent, changePhase, handleChatMessage, handleFileMessage, syncPeers],
   )
 
-  const closeLink = useCallback((remotePeerId: string) => {
-    const link = linksRef.current.get(remotePeerId)
-    if (!link) return
-    if (link.qualityTimer !== null) window.clearInterval(link.qualityTimer)
-    link.chatChannel?.close()
-    link.fileChannel?.close()
-    link.connection.close()
-    linksRef.current.delete(remotePeerId)
-    pendingSeenRef.current.delete(remotePeerId)
-    syncPeers()
-  }, [syncPeers])
+  const closeLink = useCallback(
+    (remotePeerId: string) => {
+      const link = linksRef.current.get(remotePeerId)
+      if (!link) return
+      if (callRef.current.peerId === remotePeerId) {
+        clearCall('The call ended because the peer disconnected.')
+      }
+      if (link.qualityTimer !== null) window.clearInterval(link.qualityTimer)
+      link.chatChannel?.close()
+      link.fileChannel?.close()
+      link.connection.close()
+      linksRef.current.delete(remotePeerId)
+      pendingSeenRef.current.delete(remotePeerId)
+      setRemoteCallStream(null)
+      syncPeers()
+    },
+    [clearCall, syncPeers],
+  )
 
   const closePeer = useCallback(() => {
+    if (callRef.current.phase !== 'idle') clearCall()
     for (const link of linksRef.current.values()) {
       if (link.qualityTimer !== null) window.clearInterval(link.qualityTimer)
       link.chatChannel?.close()
@@ -603,8 +829,9 @@ export function usePeerSession() {
     linksRef.current.clear()
     incomingFileRef.current = null
     pendingSeenRef.current.clear()
+    setRemoteCallStream(null)
     syncPeers()
-  }, [syncPeers])
+  }, [clearCall, syncPeers])
 
   const ensurePeer = useCallback(
     async (remotePeerId: string, initiator: boolean) => {
@@ -631,6 +858,7 @@ export function usePeerSession() {
         remoteCandidates: [],
         turnConfigured,
         qualityTimer: null,
+        audioSender: null,
       }
       linksRef.current.set(remotePeerId, link)
       syncPeers()
@@ -701,11 +929,22 @@ export function usePeerSession() {
             setFailureHelp(diagnosis.detail)
           }
           addEvent(diagnosis.title, diagnosis.detail, 'danger')
+          if (callRef.current.peerId === remotePeerId) {
+            clearCall('The call ended because the direct connection failed.')
+          }
         }
+      })
+      peer.addEventListener('track', (event) => {
+        if (event.track.kind !== 'audio' || roomType !== 'private') return
+        const stream = event.streams[0] ?? new MediaStream([event.track])
+        setRemoteCallStream(stream)
       })
       peer.addEventListener('datachannel', (event) => attachChannel(remotePeerId, event.channel))
 
       if (initiator) {
+        if (roomType === 'private') {
+          link.audioSender = peer.addTransceiver('audio', { direction: 'sendrecv' }).sender
+        }
         attachChannel(remotePeerId, peer.createDataChannel('chat', { ordered: true }))
         if (roomType === 'private') {
           attachChannel(remotePeerId, peer.createDataChannel('files', { ordered: true }))
@@ -713,7 +952,7 @@ export function usePeerSession() {
       }
       return peer
     },
-    [addEvent, attachChannel, changePhase, roomType, syncPeers],
+    [addEvent, attachChannel, changePhase, clearCall, roomType, syncPeers],
   )
 
   const flushCandidates = useCallback(async (remotePeerId: string, peer: RTCPeerConnection) => {
@@ -784,6 +1023,13 @@ export function usePeerSession() {
           addEvent('Offer received', 'Preparing the response in this browser.', 'active')
           const peer = await ensurePeer(message.fromPeerId, false)
           await peer.setRemoteDescription(message.description)
+          const link = linksRef.current.get(message.fromPeerId)
+          if (roomType === 'private' && link) {
+            link.audioSender =
+              peer
+                .getTransceivers()
+                .find((transceiver) => transceiver.receiver.track.kind === 'audio')?.sender ?? null
+          }
           await flushCandidates(message.fromPeerId, peer)
           await peer.setLocalDescription(await peer.createAnswer())
           signalRef.current?.send({
@@ -877,6 +1123,7 @@ export function usePeerSession() {
       ensurePeer,
       flushCandidates,
       roomCode,
+      roomType,
     ],
   )
 
@@ -1153,6 +1400,102 @@ export function usePeerSession() {
     }
   }, [broadcastChat])
 
+  const startCall = useCallback(() => {
+    if (roomType !== 'private' || callRef.current.phase === 'incoming_ringing') return false
+    if (callRef.current.phase !== 'idle' && callRef.current.phase !== 'failed') return false
+    const link = [...linksRef.current.values()].find(
+      (candidate) => candidate.chatChannel?.readyState === 'open',
+    )
+    if (!link) return false
+    const callId = crypto.randomUUID()
+    if (
+      !sendCallControl(link.peerId, {
+        kind: 'call_invite',
+        callId,
+        sentAt: new Date().toISOString(),
+      })
+    ) {
+      return false
+    }
+    changeCall({
+      ...IDLE_CALL,
+      phase: 'outgoing_ringing',
+      callId,
+      peerId: link.peerId,
+      peerName: link.name || 'Peer',
+    })
+    return true
+  }, [changeCall, roomType, sendCallControl])
+
+  const acceptCall = useCallback(async () => {
+    const current = callRef.current
+    if (roomType !== 'private' || current.phase !== 'incoming_ringing') return
+    changeCall({ ...current, phase: 'connecting', error: '' })
+    const ready = await acquireLocalAudio(current.callId, current.peerId)
+    if (!ready) {
+      if (callRef.current.phase === 'failed') {
+        sendCallControl(current.peerId, {
+          kind: 'call_decline',
+          callId: current.callId,
+          reason: 'microphone_unavailable',
+        })
+      }
+      return
+    }
+    if (callRef.current.callId !== current.callId) return
+    sendCallControl(current.peerId, { kind: 'call_accept', callId: current.callId })
+  }, [acquireLocalAudio, changeCall, roomType, sendCallControl])
+
+  const declineCall = useCallback(() => {
+    const current = callRef.current
+    if (current.phase !== 'incoming_ringing') return
+    sendCallControl(current.peerId, {
+      kind: 'call_decline',
+      callId: current.callId,
+      reason: 'declined',
+    })
+    clearCall()
+  }, [clearCall, sendCallControl])
+
+  const cancelCall = useCallback(() => {
+    const current = callRef.current
+    if (current.phase !== 'outgoing_ringing') return
+    sendCallControl(current.peerId, { kind: 'call_cancel', callId: current.callId })
+    clearCall()
+  }, [clearCall, sendCallControl])
+
+  const endCall = useCallback(() => {
+    const current = callRef.current
+    if (current.phase !== 'connecting' && current.phase !== 'active') return
+    sendCallControl(current.peerId, {
+      kind: 'call_end',
+      callId: current.callId,
+      reason: 'hangup',
+    })
+    clearCall()
+  }, [clearCall, sendCallControl])
+
+  const toggleCallMute = useCallback(() => {
+    const current = callRef.current
+    if (current.phase !== 'connecting' && current.phase !== 'active') return
+    const muted = !current.muted
+    localCallStreamRef.current
+      ?.getAudioTracks()
+      .forEach((track) => {
+        track.enabled = !muted
+      })
+    sendCallControl(current.peerId, {
+      kind: 'call_mute',
+      callId: current.callId,
+      muted,
+    })
+    changeCall({ ...current, muted })
+  }, [changeCall, sendCallControl])
+
+  const dismissCallError = useCallback(() => {
+    if (callRef.current.phase === 'failed') clearCall()
+  }, [clearCall])
+
   const sendTransfer = useCallback(
     async ({
       blob,
@@ -1265,6 +1608,9 @@ export function usePeerSession() {
 
   const sendVoice = useCallback(
     (blob: Blob, durationMs: number, waveform: number[]) => {
+      if (callRef.current.phase !== 'idle' && callRef.current.phase !== 'failed') {
+        throw new Error('End the live call before sending a voice message.')
+      }
       if (!blob.type.startsWith('audio/')) throw new Error('The recording format is invalid.')
       if (durationMs <= 0 || durationMs > MAX_VOICE_DURATION_MS) {
         throw new Error('Voice notes can be up to two minutes long.')
@@ -1315,6 +1661,8 @@ export function usePeerSession() {
     peerTyping,
     displayName,
     peerName,
+    call,
+    remoteCallStream,
     maxFileSize: MAX_FILE_SIZE,
     createRoom,
     joinRoom,
@@ -1329,5 +1677,12 @@ export function usePeerSession() {
     sendFile,
     sendVoice,
     cancelTransfer,
+    startCall,
+    acceptCall,
+    declineCall,
+    cancelCall,
+    endCall,
+    toggleCallMute,
+    dismissCallError,
   }
 }
