@@ -14,4 +14,4 @@ alwaysApply: false
 - Queue ICE candidates until the remote description exists, and close every channel/listener on leave.
 - Keep file transfers bounded, chunked, backpressured, and initiated only after explicit user selection.
 - WebRTC data channels use DTLS encryption, but do not claim verified peer identity without fingerprint verification.
-- Never commit static TURN credentials. Prefer short-lived TURN credentials issued by a trusted service.
+- Keep ICE configuration direct-only with public STUN discovery; document that restrictive networks can block it.

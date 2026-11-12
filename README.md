@@ -50,13 +50,14 @@ browser.
 - Text group rooms for up to four people
 - Real-time messages sent directly between browsers
 - Clear waiting, connecting, connected and error states
-- Works across different networks using STUN, with optional TURN support
+- Can connect directly across many networks using STUN
 - Shows the connection route and connection quality
 - Responsive design for laptops and phones
 
 ## Extra features
 
-- One-to-one voice and video calls with camera, mute and hang-up controls
+- **One-to-one voice calls** with mute and hang-up controls
+- **One-to-one video calls** with camera, mute and hang-up controls
 - Front and back camera switching on supported phones
 - Full-screen video with a compact landscape-phone layout
 - Voice messages with waveforms
@@ -66,7 +67,7 @@ browser.
 - Usernames and typing indicators
 - QR code invitations and native sharing
 - Room recovery after a refresh or short disconnect
-- Installable as a PWA
+- **Installable as a PWA**
 
 Group rooms are text-only. Files, voice messages, voice calls and video calls are available in
 private rooms.

@@ -67,7 +67,6 @@ type PeerLink = SessionPeer & {
   queuedCandidates: IceCandidatePayload[]
   localCandidates: string[]
   remoteCandidates: string[]
-  turnConfigured: boolean
   qualityTimer: number | null
   audioSender: RTCRtpSender | null
   videoSender: RTCRtpSender | null
@@ -972,7 +971,7 @@ export function usePeerSession() {
     async (remotePeerId: string, initiator: boolean) => {
       const existing = linksRef.current.get(remotePeerId)
       if (existing) return existing.connection
-      const { connection: peer, turnConfigured } = await createPeerConnection()
+      const peer = createPeerConnection()
       const racedLink = linksRef.current.get(remotePeerId)
       if (racedLink) {
         peer.close()
@@ -991,7 +990,6 @@ export function usePeerSession() {
         queuedCandidates: [],
         localCandidates: [],
         remoteCandidates: [],
-        turnConfigured,
         qualityTimer: null,
         audioSender: null,
         videoSender: null,
@@ -1000,9 +998,7 @@ export function usePeerSession() {
       syncPeers()
       addEvent(
         'Peer connection created',
-        turnConfigured
-          ? 'Direct routes and a managed TURN fallback are available.'
-          : 'The browsers are preparing a direct route.',
+        'The browsers are preparing a direct route.',
         'active',
       )
 
@@ -1052,7 +1048,6 @@ export function usePeerSession() {
           const diagnosis = diagnoseIceFailure({
             localCandidates: link.localCandidates,
             remoteCandidates: link.remoteCandidates,
-            turnConfigured: link.turnConfigured,
           })
           link.phase = 'failed'
           syncPeers()

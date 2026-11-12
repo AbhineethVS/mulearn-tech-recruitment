@@ -14,10 +14,6 @@ import { RoomManager } from './room-manager.js'
 
 type LiveSocket = WebSocket & { isAlive: boolean }
 
-const DEFAULT_ICE_SERVERS = [
-  { urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302'] },
-]
-
 const send = (socket: WebSocket, message: ServerSignal) => {
   if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify(message))
 }
@@ -58,46 +54,10 @@ export function createPeerServer() {
   })
   const rooms = new RoomManager<LiveSocket>()
   const distPath = resolve(process.cwd(), 'dist')
-  let iceCache: { expiresAt: number; servers: unknown[] } | null = null
 
   app.disable('x-powered-by')
   app.get('/health', (_request, response) => {
     response.json({ status: 'ok', rooms: rooms.roomCount() })
-  })
-  app.get('/api/ice-servers', async (_request, response) => {
-    const domain = process.env.METERED_TURN_DOMAIN?.replace(/^https?:\/\//, '').replace(/\/$/, '')
-    const apiKey = process.env.METERED_TURN_API_KEY
-
-    if (!domain || !apiKey) {
-      response.json({ iceServers: DEFAULT_ICE_SERVERS, turnConfigured: false })
-      return
-    }
-
-    if (iceCache && iceCache.expiresAt > Date.now()) {
-      response.json({ iceServers: iceCache.servers, turnConfigured: true })
-      return
-    }
-
-    try {
-      const turnResponse = await fetch(
-        `https://${domain}/api/v1/turn/credentials?apiKey=${encodeURIComponent(apiKey)}`,
-        { signal: AbortSignal.timeout(5_000) },
-      )
-      if (!turnResponse.ok) throw new Error(`TURN provider returned ${turnResponse.status}`)
-      const servers = await turnResponse.json()
-      if (!Array.isArray(servers) || servers.length === 0) {
-        throw new Error('TURN provider returned no ICE servers')
-      }
-      iceCache = { servers, expiresAt: Date.now() + 10 * 60 * 1_000 }
-      response.json({ iceServers: servers, turnConfigured: true })
-    } catch (error) {
-      console.error('Could not load managed TURN credentials:', error)
-      response.status(503).json({
-        iceServers: DEFAULT_ICE_SERVERS,
-        turnConfigured: false,
-        error: 'Managed TURN is temporarily unavailable.',
-      })
-    }
   })
   app.use(express.static(distPath))
   app.use((_request, response) => response.sendFile(resolve(distPath, 'index.html')))

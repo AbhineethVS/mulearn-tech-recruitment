@@ -7,18 +7,13 @@ const DEFAULT_ICE_SERVERS: RTCIceServer[] = [
   { urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302'] },
 ]
 
-type IceConfiguration = {
-  iceServers: RTCIceServer[]
-  turnConfigured: boolean
-}
-
 export type IceFailureDiagnosis = {
   title: string
   detail: string
 }
 
 export type ConnectionRoute = {
-  kind: 'host' | 'stun' | 'turn' | 'unknown'
+  kind: 'host' | 'stun' | 'unknown'
   label: string
   detail: string
 }
@@ -56,11 +51,9 @@ function privateIpv4(address: string) {
 export function diagnoseIceFailure({
   localCandidates,
   remoteCandidates,
-  turnConfigured,
 }: {
   localCandidates: string[]
   remoteCandidates: string[]
-  turnConfigured: boolean
 }): IceFailureDiagnosis {
   const localHosts = localCandidates
     .map(parseCandidate)
@@ -97,18 +90,10 @@ export function diagnoseIceFailure({
     }
   }
 
-  if (!turnConfigured) {
-    return {
-      title: 'The direct route is blocked',
-      detail:
-        'The peers exchanged network details, but no direct candidate pair worked. Try a different non-guest network or the laptop’s mobile hotspot. TURN is an optional relayed fallback.',
-    }
-  }
-
   return {
-    title: 'No direct or relayed route worked',
+    title: 'The direct route is blocked',
     detail:
-      'ICE tested the available direct and TURN routes without selecting a pair. Retry once, then verify the TURN credentials and network firewall rules.',
+      'The peers exchanged network details, but no direct candidate pair worked. Try a different non-guest network, check endpoint firewalls, or use the laptop’s mobile hotspot.',
   }
 }
 
@@ -119,9 +104,9 @@ export function classifyConnectionRoute(
   const types = new Set([localType, remoteType].filter(Boolean))
   if (types.has('relay')) {
     return {
-      kind: 'turn',
-      label: 'Relayed · TURN',
-      detail: 'WebRTC is encrypted, but TURN is relaying packets because no direct route worked.',
+      kind: 'unknown',
+      label: 'Unknown WebRTC route',
+      detail: 'The browser selected a route that is not part of P4Pair’s direct-only setup.',
     }
   }
   if (types.has('srflx') || types.has('prflx')) {
@@ -239,32 +224,8 @@ export async function measureConnectionQuality(peer: RTCPeerConnection) {
   return classifyConnectionQuality(rttMs)
 }
 
-let iceConfigurationPromise: Promise<IceConfiguration> | null = null
-
-async function loadIceConfiguration(): Promise<IceConfiguration> {
-  try {
-    const response = await fetch('/api/ice-servers')
-    if (!response.ok) throw new Error('ICE configuration is unavailable.')
-    const value = (await response.json()) as Partial<IceConfiguration>
-    if (!Array.isArray(value.iceServers) || value.iceServers.length === 0) {
-      throw new Error('ICE configuration is invalid.')
-    }
-    return {
-      iceServers: value.iceServers,
-      turnConfigured: value.turnConfigured === true,
-    }
-  } catch {
-    return { iceServers: DEFAULT_ICE_SERVERS, turnConfigured: false }
-  }
-}
-
-export async function createPeerConnection() {
-  iceConfigurationPromise ??= loadIceConfiguration()
-  const configuration = await iceConfigurationPromise
-  return {
-    connection: new RTCPeerConnection({ iceServers: configuration.iceServers }),
-    turnConfigured: configuration.turnConfigured,
-  }
+export function createPeerConnection() {
+  return new RTCPeerConnection({ iceServers: DEFAULT_ICE_SERVERS })
 }
 
 export const toDescriptionPayload = (

@@ -1,4 +1,4 @@
-const CACHE_NAME = 'p4pair-shell-v8'
+const CACHE_NAME = 'p4pair-shell-v9'
 const STATIC_PATHS = [
   '/manifest.webmanifest',
   '/favicon.svg',
@@ -47,8 +47,7 @@ self.addEventListener('fetch', (event) => {
   if (
     request.method !== 'GET' ||
     url.origin !== self.location.origin ||
-    NETWORK_ONLY_PATHS.includes(url.pathname) ||
-    url.pathname.startsWith('/api/')
+    NETWORK_ONLY_PATHS.includes(url.pathname)
   ) {
     return
   }

@@ -72,7 +72,6 @@ Other valid resolutions include:
 - Disable client isolation in the router settings.
 - Avoid guest Wi-Fi.
 - Test on a network that permits communication between local clients.
-- Use managed TURN when a direct route is impossible.
 
 ### Product improvement
 
@@ -85,17 +84,7 @@ the laptop's mobile hotspot.
 This is deliberately described as “likely,” not certain. Browser JavaScript cannot run ARP or ping
 tests, so it cannot distinguish router isolation from every possible endpoint firewall. Other
 candidate patterns receive different guidance, including missing peer candidates, a blocked direct
-route without TURN, or failure of both direct and relayed routes.
-
-### Why TURN is still useful
-
-P4Pair always allows ICE to try direct host and STUN-discovered routes first. TURN is a fallback for
-networks where those routes cannot work. A TURN session still uses WebRTC and DTLS encryption, but
-its packets are relayed, so the UI and documentation must not describe that route as physically
-direct.
-
-For the core project demonstration, a network that permits direct communication should be used.
-TURN demonstrates reliability across restrictive networks as an additional capability.
+route, or endpoint firewall restrictions.
 
 ### Lessons
 
@@ -139,7 +128,7 @@ separately report an ICE failure.
 
 Mobile browsers do not always close WebSockets before suspending a page. Until the server heartbeat
 expired that socket, the in-memory room correctly—but unhelpfully—counted it as the second peer.
-The room-full response happened at signaling time and was not caused by STUN, TURN, or WebRTC.
+The room-full response happened at signaling time and was not caused by STUN or WebRTC.
 
 ### Resolution
 

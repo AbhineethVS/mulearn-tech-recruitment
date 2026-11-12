@@ -10,7 +10,7 @@ decisions live in `docs/`.
 - The Node/WebSocket server may exchange room membership, SDP, and ICE candidates only.
 - Keep rooms ephemeral and usable without accounts or a database. Private rooms hold two peers;
   text-only group rooms hold at most four.
-- Describe STUN and TURN accurately; never claim that STUN guarantees connectivity.
+- Use direct host/STUN routes only, and never claim that STUN guarantees connectivity.
 
 ## Quality gates
 

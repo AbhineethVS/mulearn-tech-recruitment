@@ -90,18 +90,17 @@ and stop every local track. Group rooms create no media transceivers and reject 
 
 After ICE connects, the client reads the selected candidate pair through `RTCPeerConnection`
 statistics. Host-only pairs are shown as direct host routes, server-reflexive pairs as direct STUN
-routes, and relay candidates as TURN routes. This keeps the UI accurate instead of calling every
-WebRTC session physically direct. The same statistics provide the selected pair's current
-round-trip time, which is classified as excellent, good, fair, or unstable and displayed in the
-route-details dialog.
+routes, and unexpected route types are not presented as supported. The same statistics provide the
+selected pair's current round-trip time, which is classified as excellent, good, fair, or unstable
+and displayed in the route-details dialog.
 
 ## PWA boundary
 
 The production service worker precaches the generated application shell and serves it when
 navigation is offline. Hashed scripts, styles, fonts, and images are cached as static assets.
-`/signal`, `/health`, and `/api/*` are always network-only, so stale room state or TURN credentials
-cannot be replayed from a cache. The offline shell is informational: a new room still requires
-network access to signaling, and peer content remains outside the service worker cache.
+`/signal` and `/health` are always network-only, so stale room state cannot be replayed from a
+cache. The offline shell is informational: a new room still requires network access to signaling,
+and peer content remains outside the service worker cache.
 
 Invitation QR codes are rendered locally from the same room URL used by copy and native sharing.
 No external QR service receives the invitation.
@@ -109,10 +108,9 @@ No external QR service receives the invitation.
 ## Network traversal
 
 The default ICE configuration uses public STUN servers. STUN lets many peers discover a usable
-public route, but it cannot traverse every NAT or firewall. In production, the server can use a
-credential-scoped Metered API key to fetch and cache managed TURN configuration for the browsers.
-TURN relays DTLS-encrypted WebRTC traffic when no direct route works; it is not the signaling
-server and it does not receive plaintext chat messages.
+public route, but it cannot traverse every NAT or firewall. P4Pair uses direct routes only. If a
+network blocks every direct candidate pair, the interface recommends another non-guest network or
+the laptop's mobile hotspot.
 
 ## Security boundaries
 

@@ -14,7 +14,6 @@ describe('ICE failure diagnosis', () => {
       remoteCandidates: [
         'candidate:2 1 udp 2113937151 192.168.31.36 43866 typ host generation 0',
       ],
-      turnConfigured: false,
     })
 
     expect(diagnosis.title).toBe('Likely local-network isolation')
@@ -25,7 +24,6 @@ describe('ICE failure diagnosis', () => {
     const diagnosis = diagnoseIceFailure({
       localCandidates: ['candidate:1 1 udp 1 10.0.0.2 5000 typ host'],
       remoteCandidates: ['candidate:2 1 udp 1 192.168.1.3 6000 typ host'],
-      turnConfigured: false,
     })
 
     expect(diagnosis.title).toBe('The direct route is blocked')
@@ -33,10 +31,10 @@ describe('ICE failure diagnosis', () => {
 })
 
 describe('selected connection route', () => {
-  it('labels relay candidates as TURN even when the other side is host', () => {
+  it('does not present unexpected relay candidates as a supported route', () => {
     expect(classifyConnectionRoute('relay', 'host')).toMatchObject({
-      kind: 'turn',
-      label: 'Relayed · TURN',
+      kind: 'unknown',
+      label: 'Unknown WebRTC route',
     })
   })
 

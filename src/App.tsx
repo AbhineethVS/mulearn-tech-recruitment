@@ -394,9 +394,7 @@ function ConnectionDetails({
 
         <div className="details-encryption">
           <LockKeyhole size={15} />
-          {route?.kind === 'turn'
-            ? 'Relayed through TURN and encrypted in transit'
-            : 'Direct and encrypted in transit'}
+          Direct and encrypted in transit
         </div>
 
         <dl className="details-facts">
