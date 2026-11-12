@@ -18,6 +18,7 @@ import {
   type ConnectionRoute,
 } from '../lib/peer-connection'
 import {
+  cameraErrorMessage,
   callControlMatches,
   IDLE_CALL,
   isCallEnvelope,
@@ -30,6 +31,7 @@ import { MAX_VOICE_DURATION_MS } from './useVoiceRecorder'
 import type {
   ChatMessage,
   CallEnvelope,
+  CallMode,
   ConnectionEvent,
   EmojiReaction,
   FileControlEnvelope,
@@ -68,6 +70,7 @@ type PeerLink = SessionPeer & {
   turnConfigured: boolean
   qualityTimer: number | null
   audioSender: RTCRtpSender | null
+  videoSender: RTCRtpSender | null
 }
 
 const MAX_MESSAGE_LENGTH = 4_000
@@ -247,7 +250,9 @@ export function usePeerSession() {
   })
   const [peerName, setPeerName] = useState('')
   const [call, setCall] = useState<LiveCallState>(IDLE_CALL)
+  const [localCallStream, setLocalCallStream] = useState<MediaStream | null>(null)
   const [remoteCallStream, setRemoteCallStream] = useState<MediaStream | null>(null)
+  const [canSwitchCamera, setCanSwitchCamera] = useState(false)
 
   const signalRef = useRef<SignalClient | null>(null)
   const linksRef = useRef(new Map<string, PeerLink>())
@@ -275,7 +280,9 @@ export function usePeerSession() {
   const resumeAttemptedRef = useRef(false)
   const callRef = useRef<LiveCallState>(IDLE_CALL)
   const localCallStreamRef = useRef<MediaStream | null>(null)
+  const remoteCallStreamRef = useRef<MediaStream | null>(null)
   const mediaGenerationRef = useRef(0)
+  const videoGenerationRef = useRef(0)
 
   const changePhase = useCallback((next: SessionPhase) => {
     phaseRef.current = next
@@ -294,103 +301,183 @@ export function usePeerSession() {
     return true
   }, [])
 
-  const detachLocalAudio = useCallback(() => {
+  const detachLocalMedia = useCallback(() => {
     mediaGenerationRef.current += 1
+    videoGenerationRef.current += 1
     const stream = localCallStreamRef.current
     localCallStreamRef.current = null
+    setLocalCallStream(null)
+    setCanSwitchCamera(false)
     stream?.getTracks().forEach((track) => track.stop())
     for (const link of linksRef.current.values()) {
       if (link.audioSender) void link.audioSender.replaceTrack(null).catch(() => undefined)
+      if (link.videoSender) void link.videoSender.replaceTrack(null).catch(() => undefined)
     }
   }, [])
 
   const clearCall = useCallback((failure = '') => {
-    detachLocalAudio()
+    const previous = callRef.current
+    detachLocalMedia()
     changeCall(
       failure
         ? {
             ...IDLE_CALL,
             phase: 'failed',
+            mode: previous.mode,
+            peerName: previous.peerName,
             error: failure,
           }
         : IDLE_CALL,
     )
-  }, [changeCall, detachLocalAudio])
+  }, [changeCall, detachLocalMedia])
 
-  const acquireLocalAudio = useCallback(async (callId: string, remotePeerId: string) => {
-    const generation = mediaGenerationRef.current + 1
-    mediaGenerationRef.current = generation
-    let stream: MediaStream | null = null
-    try {
-      stream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true,
-        },
-      })
-      if (
-        !mediaRequestIsCurrent(
-          generation,
-          mediaGenerationRef.current,
-          callRef.current,
-          callId,
-          remotePeerId,
-        )
-      ) {
-        stream.getTracks().forEach((track) => track.stop())
-        return false
-      }
-      const link = linksRef.current.get(remotePeerId)
-      const sender =
-        link?.audioSender ??
-        link?.connection
-          .getTransceivers()
-          .find((transceiver) => transceiver.receiver.track.kind === 'audio')?.sender ??
-        null
-      const track = stream.getAudioTracks()[0]
-      if (!link || !sender || !track) {
-        stream.getTracks().forEach((candidate) => candidate.stop())
-        throw new Error('The private audio route is not available.')
-      }
-      link.audioSender = sender
-      await sender.replaceTrack(track)
-      if (
-        !mediaRequestIsCurrent(
-          generation,
-          mediaGenerationRef.current,
-          callRef.current,
-          callId,
-          remotePeerId,
-        )
-      ) {
-        await sender.replaceTrack(null).catch(() => undefined)
-        stream.getTracks().forEach((candidate) => candidate.stop())
-        return false
-      }
-      localCallStreamRef.current = stream
-      track.addEventListener(
-        'ended',
-        () => {
-          const current = callRef.current
-          if (current.callId !== callId) return
-          sendCallControl(remotePeerId, {
-            kind: 'call_end',
+  const acquireLocalMedia = useCallback(
+    async (
+      callId: string,
+      remotePeerId: string,
+      mode: CallMode,
+      facingMode: 'user' | 'environment' = 'user',
+    ) => {
+      const generation = mediaGenerationRef.current + 1
+      mediaGenerationRef.current = generation
+      let stream: MediaStream | null = null
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          audio: {
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: true,
+          },
+          video:
+            mode === 'video'
+              ? {
+                  width: { ideal: 1280 },
+                  height: { ideal: 720 },
+                  facingMode: { ideal: facingMode },
+                }
+              : false,
+        })
+        if (
+          !mediaRequestIsCurrent(
+            generation,
+            mediaGenerationRef.current,
+            callRef.current,
             callId,
-            reason: 'microphone_ended',
-          })
-          clearCall('The microphone stopped. Start a new call to reconnect it.')
-        },
-        { once: true },
-      )
-      return true
-    } catch (mediaError) {
-      stream?.getTracks().forEach((track) => track.stop())
-      if (generation !== mediaGenerationRef.current) return false
-      clearCall(microphoneErrorMessage(mediaError))
-      return false
-    }
-  }, [clearCall, sendCallControl])
+            remotePeerId,
+          )
+        ) {
+          stream.getTracks().forEach((track) => track.stop())
+          return false
+        }
+
+        const link = linksRef.current.get(remotePeerId)
+        const audioSender =
+          link?.audioSender ??
+          link?.connection
+            .getTransceivers()
+            .find((transceiver) => transceiver.receiver.track.kind === 'audio')?.sender ??
+          null
+        const videoSender =
+          link?.videoSender ??
+          link?.connection
+            .getTransceivers()
+            .find((transceiver) => transceiver.receiver.track.kind === 'video')?.sender ??
+          null
+        const audioTrack = stream.getAudioTracks()[0]
+        const videoTrack = stream.getVideoTracks()[0]
+        if (
+          !link ||
+          !audioSender ||
+          !audioTrack ||
+          (mode === 'video' && (!videoSender || !videoTrack))
+        ) {
+          throw new Error('The private media route is not available.')
+        }
+
+        link.audioSender = audioSender
+        link.videoSender = videoSender
+        await audioSender.replaceTrack(audioTrack)
+        if (mode === 'video' && videoSender && videoTrack) {
+          await videoSender.replaceTrack(videoTrack)
+        }
+        if (
+          !mediaRequestIsCurrent(
+            generation,
+            mediaGenerationRef.current,
+            callRef.current,
+            callId,
+            remotePeerId,
+          )
+        ) {
+          if (audioSender.track?.id === audioTrack.id) {
+            await audioSender.replaceTrack(null).catch(() => undefined)
+          }
+          if (videoSender?.track?.id === videoTrack?.id) {
+            await videoSender.replaceTrack(null).catch(() => undefined)
+          }
+          stream.getTracks().forEach((track) => track.stop())
+          return false
+        }
+
+        localCallStreamRef.current = stream
+        setLocalCallStream(stream)
+        const current = callRef.current
+        changeCall({
+          ...current,
+          cameraEnabled: mode === 'video',
+          facingMode,
+          error: '',
+        })
+        if (mode === 'video') {
+          void navigator.mediaDevices
+            .enumerateDevices()
+            .then((devices) => {
+              if (callRef.current.callId !== callId) return
+              setCanSwitchCamera(
+                devices.filter((device) => device.kind === 'videoinput').length > 1,
+              )
+            })
+            .catch(() => setCanSwitchCamera(false))
+        }
+
+        audioTrack.addEventListener(
+          'ended',
+          () => {
+            const activeCall = callRef.current
+            if (activeCall.callId !== callId) return
+            sendCallControl(remotePeerId, {
+              kind: 'call_end',
+              callId,
+              reason: 'microphone_ended',
+            })
+            clearCall('The microphone stopped. Start a new call to reconnect it.')
+          },
+          { once: true },
+        )
+        videoTrack?.addEventListener(
+          'ended',
+          () => {
+            const activeCall = callRef.current
+            if (activeCall.callId !== callId || !activeCall.cameraEnabled) return
+            changeCall({ ...activeCall, cameraEnabled: false })
+            sendCallControl(remotePeerId, { kind: 'call_video', callId, enabled: false })
+          },
+          { once: true },
+        )
+        return true
+      } catch (mediaError) {
+        stream?.getTracks().forEach((track) => track.stop())
+        if (generation !== mediaGenerationRef.current) return false
+        clearCall(
+          mode === 'video'
+            ? cameraErrorMessage(mediaError)
+            : microphoneErrorMessage(mediaError),
+        )
+        return false
+      }
+    },
+    [changeCall, clearCall, sendCallControl],
+  )
 
   const syncPeers = useCallback(() => {
     const nextPeers = [...linksRef.current.values()].map(
@@ -462,6 +549,7 @@ export function usePeerSession() {
             callId: envelope.callId,
             peerId: remotePeerId,
             peerName: linksRef.current.get(remotePeerId)?.name || 'Peer',
+            mode: envelope.mode,
           })
           return
         }
@@ -477,6 +565,7 @@ export function usePeerSession() {
             callId: envelope.callId,
             peerId: remotePeerId,
             peerName: linksRef.current.get(remotePeerId)?.name || 'Peer',
+            mode: envelope.mode,
           })
           return
         }
@@ -491,19 +580,34 @@ export function usePeerSession() {
       if (!callControlMatches(current, remotePeerId, envelope)) return
       if (envelope.kind === 'call_accept' && current.phase === 'outgoing_ringing') {
         changeCall({ ...current, phase: 'connecting', error: '' })
-        void acquireLocalAudio(envelope.callId, remotePeerId).then((ready) => {
+        void acquireLocalMedia(
+          envelope.callId,
+          remotePeerId,
+          current.mode,
+          current.facingMode,
+        ).then((ready) => {
           const activeCall = callRef.current
           if (!ready) {
             if (activeCall.phase === 'failed') {
               sendCallControl(remotePeerId, {
                 kind: 'call_end',
                 callId: envelope.callId,
-                reason: 'microphone_unavailable',
+                reason:
+                  current.mode === 'video'
+                    ? 'camera_unavailable'
+                    : 'microphone_unavailable',
               })
             }
             return
           }
           if (activeCall.callId !== envelope.callId) return
+          if (activeCall.mode === 'video') {
+            sendCallControl(remotePeerId, {
+              kind: 'call_video',
+              callId: envelope.callId,
+              enabled: true,
+            })
+          }
           sendCallControl(remotePeerId, { kind: 'call_ready', callId: envelope.callId })
           changeCall({ ...activeCall, phase: 'active', startedAt: Date.now() })
         })
@@ -513,11 +617,16 @@ export function usePeerSession() {
         envelope.kind === 'call_decline' &&
         (current.phase === 'outgoing_ringing' || current.phase === 'connecting')
       ) {
-        clearCall(
-          envelope.reason === 'busy'
-            ? `${current.peerName || 'Your peer'} is already handling another call.`
-            : `${current.peerName || 'Your peer'} declined the call.`,
-        )
+        const peerName = current.peerName || 'Your peer'
+        let failure = `${peerName} declined the call.`
+        if (envelope.reason === 'busy') {
+          failure = `${peerName} is already handling another call.`
+        } else if (envelope.reason === 'camera_unavailable') {
+          failure = `${peerName} could not access a camera and microphone.`
+        } else if (envelope.reason === 'microphone_unavailable') {
+          failure = `${peerName} could not access a microphone.`
+        }
+        clearCall(failure)
       } else if (
         envelope.kind === 'call_cancel' &&
         (current.phase === 'incoming_ringing' || current.phase === 'connecting')
@@ -530,9 +639,16 @@ export function usePeerSession() {
         (current.phase === 'connecting' || current.phase === 'active')
       ) {
         changeCall({ ...current, remoteMuted: envelope.muted })
+      } else if (
+        envelope.kind === 'call_video' &&
+        current.mode === 'video' &&
+        current.phase !== 'idle' &&
+        current.phase !== 'failed'
+      ) {
+        changeCall({ ...current, remoteCameraEnabled: envelope.enabled })
       }
     },
-    [acquireLocalAudio, changeCall, clearCall, roomType, sendCallControl],
+    [acquireLocalMedia, changeCall, clearCall, roomType, sendCallControl],
   )
 
   const handleChatMessage = useCallback(
@@ -812,6 +928,7 @@ export function usePeerSession() {
       link.connection.close()
       linksRef.current.delete(remotePeerId)
       pendingSeenRef.current.delete(remotePeerId)
+      remoteCallStreamRef.current = null
       setRemoteCallStream(null)
       syncPeers()
     },
@@ -829,6 +946,7 @@ export function usePeerSession() {
     linksRef.current.clear()
     incomingFileRef.current = null
     pendingSeenRef.current.clear()
+    remoteCallStreamRef.current = null
     setRemoteCallStream(null)
     syncPeers()
   }, [clearCall, syncPeers])
@@ -859,6 +977,7 @@ export function usePeerSession() {
         turnConfigured,
         qualityTimer: null,
         audioSender: null,
+        videoSender: null,
       }
       linksRef.current.set(remotePeerId, link)
       syncPeers()
@@ -935,8 +1054,17 @@ export function usePeerSession() {
         }
       })
       peer.addEventListener('track', (event) => {
-        if (event.track.kind !== 'audio' || roomType !== 'private') return
-        const stream = event.streams[0] ?? new MediaStream([event.track])
+        if (
+          (event.track.kind !== 'audio' && event.track.kind !== 'video') ||
+          roomType !== 'private'
+        ) {
+          return
+        }
+        const stream = remoteCallStreamRef.current ?? new MediaStream()
+        remoteCallStreamRef.current = stream
+        if (!stream.getTracks().some((track) => track.id === event.track.id)) {
+          stream.addTrack(event.track)
+        }
         setRemoteCallStream(stream)
       })
       peer.addEventListener('datachannel', (event) => attachChannel(remotePeerId, event.channel))
@@ -944,6 +1072,7 @@ export function usePeerSession() {
       if (initiator) {
         if (roomType === 'private') {
           link.audioSender = peer.addTransceiver('audio', { direction: 'sendrecv' }).sender
+          link.videoSender = peer.addTransceiver('video', { direction: 'sendrecv' }).sender
         }
         attachChannel(remotePeerId, peer.createDataChannel('chat', { ordered: true }))
         if (roomType === 'private') {
@@ -1029,6 +1158,10 @@ export function usePeerSession() {
               peer
                 .getTransceivers()
                 .find((transceiver) => transceiver.receiver.track.kind === 'audio')?.sender ?? null
+            link.videoSender =
+              peer
+                .getTransceivers()
+                .find((transceiver) => transceiver.receiver.track.kind === 'video')?.sender ?? null
           }
           await flushCandidates(message.fromPeerId, peer)
           await peer.setLocalDescription(await peer.createAnswer())
@@ -1400,7 +1533,7 @@ export function usePeerSession() {
     }
   }, [broadcastChat])
 
-  const startCall = useCallback(() => {
+  const startCall = useCallback((mode: CallMode = 'voice') => {
     if (roomType !== 'private' || callRef.current.phase === 'incoming_ringing') return false
     if (callRef.current.phase !== 'idle' && callRef.current.phase !== 'failed') return false
     const link = [...linksRef.current.values()].find(
@@ -1412,6 +1545,7 @@ export function usePeerSession() {
       !sendCallControl(link.peerId, {
         kind: 'call_invite',
         callId,
+        mode,
         sentAt: new Date().toISOString(),
       })
     ) {
@@ -1423,6 +1557,7 @@ export function usePeerSession() {
       callId,
       peerId: link.peerId,
       peerName: link.name || 'Peer',
+      mode,
     })
     return true
   }, [changeCall, roomType, sendCallControl])
@@ -1431,20 +1566,35 @@ export function usePeerSession() {
     const current = callRef.current
     if (roomType !== 'private' || current.phase !== 'incoming_ringing') return
     changeCall({ ...current, phase: 'connecting', error: '' })
-    const ready = await acquireLocalAudio(current.callId, current.peerId)
+    const ready = await acquireLocalMedia(
+      current.callId,
+      current.peerId,
+      current.mode,
+      current.facingMode,
+    )
     if (!ready) {
       if (callRef.current.phase === 'failed') {
         sendCallControl(current.peerId, {
           kind: 'call_decline',
           callId: current.callId,
-          reason: 'microphone_unavailable',
+          reason:
+            current.mode === 'video'
+              ? 'camera_unavailable'
+              : 'microphone_unavailable',
         })
       }
       return
     }
     if (callRef.current.callId !== current.callId) return
+    if (current.mode === 'video') {
+      sendCallControl(current.peerId, {
+        kind: 'call_video',
+        callId: current.callId,
+        enabled: true,
+      })
+    }
     sendCallControl(current.peerId, { kind: 'call_accept', callId: current.callId })
-  }, [acquireLocalAudio, changeCall, roomType, sendCallControl])
+  }, [acquireLocalMedia, changeCall, roomType, sendCallControl])
 
   const declineCall = useCallback(() => {
     const current = callRef.current
@@ -1491,6 +1641,164 @@ export function usePeerSession() {
     })
     changeCall({ ...current, muted })
   }, [changeCall, sendCallControl])
+
+  const replaceCameraTrack = useCallback(
+    async (facingMode: 'user' | 'environment') => {
+      const current = callRef.current
+      if (
+        current.mode !== 'video' ||
+        (current.phase !== 'connecting' && current.phase !== 'active')
+      ) {
+        return false
+      }
+      const generation = videoGenerationRef.current + 1
+      videoGenerationRef.current = generation
+      let cameraStream: MediaStream | null = null
+      try {
+        cameraStream = await navigator.mediaDevices.getUserMedia({
+          audio: false,
+          video: {
+            width: { ideal: 1280 },
+            height: { ideal: 720 },
+            facingMode: { ideal: facingMode },
+          },
+        })
+        const latest = callRef.current
+        const track = cameraStream.getVideoTracks()[0]
+        const link = linksRef.current.get(current.peerId)
+        const sender =
+          link?.videoSender ??
+          link?.connection
+            .getTransceivers()
+            .find((transceiver) => transceiver.receiver.track.kind === 'video')?.sender ??
+          null
+        if (
+          generation !== videoGenerationRef.current ||
+          latest.callId !== current.callId ||
+          !track ||
+          !link ||
+          !sender
+        ) {
+          cameraStream.getTracks().forEach((candidate) => candidate.stop())
+          return false
+        }
+
+        link.videoSender = sender
+        await sender.replaceTrack(track)
+        if (
+          generation !== videoGenerationRef.current ||
+          callRef.current.callId !== current.callId
+        ) {
+          if (sender.track?.id === track.id) {
+            await sender.replaceTrack(null).catch(() => undefined)
+          }
+          cameraStream.getTracks().forEach((candidate) => candidate.stop())
+          return false
+        }
+
+        const previous = localCallStreamRef.current
+        previous?.getVideoTracks().forEach((candidate) => candidate.stop())
+        const nextStream = new MediaStream([
+          ...(previous?.getAudioTracks() ?? []),
+          track,
+        ])
+        localCallStreamRef.current = nextStream
+        setLocalCallStream(nextStream)
+        const activeCall = callRef.current
+        changeCall({
+          ...activeCall,
+          cameraEnabled: true,
+          facingMode,
+          error: '',
+        })
+        sendCallControl(current.peerId, {
+          kind: 'call_video',
+          callId: current.callId,
+          enabled: true,
+        })
+        track.addEventListener(
+          'ended',
+          () => {
+            const active = callRef.current
+            const activeVideoTrack = localCallStreamRef.current?.getVideoTracks()[0]
+            if (
+              active.callId !== current.callId ||
+              activeVideoTrack?.id !== track.id ||
+              !active.cameraEnabled
+            ) {
+              return
+            }
+            const audioOnlyStream = new MediaStream(
+              localCallStreamRef.current?.getAudioTracks() ?? [],
+            )
+            localCallStreamRef.current = audioOnlyStream
+            setLocalCallStream(audioOnlyStream)
+            changeCall({ ...active, cameraEnabled: false })
+            sendCallControl(current.peerId, {
+              kind: 'call_video',
+              callId: current.callId,
+              enabled: false,
+            })
+          },
+          { once: true },
+        )
+        return true
+      } catch (mediaError) {
+        cameraStream?.getTracks().forEach((track) => track.stop())
+        if (
+          generation === videoGenerationRef.current &&
+          callRef.current.callId === current.callId
+        ) {
+          changeCall({ ...callRef.current, error: cameraErrorMessage(mediaError) })
+        }
+        return false
+      }
+    },
+    [changeCall, sendCallControl],
+  )
+
+  const toggleCallCamera = useCallback(async () => {
+    const current = callRef.current
+    if (
+      current.mode !== 'video' ||
+      (current.phase !== 'connecting' && current.phase !== 'active')
+    ) {
+      return
+    }
+    if (!current.cameraEnabled) {
+      await replaceCameraTrack(current.facingMode)
+      return
+    }
+
+    const generation = videoGenerationRef.current + 1
+    videoGenerationRef.current = generation
+    const link = linksRef.current.get(current.peerId)
+    const sender = link?.videoSender
+    await sender?.replaceTrack(null).catch(() => undefined)
+    if (
+      generation !== videoGenerationRef.current ||
+      callRef.current.callId !== current.callId
+    ) {
+      return
+    }
+    const stream = localCallStreamRef.current
+    stream?.getVideoTracks().forEach((track) => track.stop())
+    const audioOnlyStream = new MediaStream(stream?.getAudioTracks() ?? [])
+    localCallStreamRef.current = audioOnlyStream
+    setLocalCallStream(audioOnlyStream)
+    changeCall({ ...callRef.current, cameraEnabled: false, error: '' })
+    sendCallControl(current.peerId, {
+      kind: 'call_video',
+      callId: current.callId,
+      enabled: false,
+    })
+  }, [changeCall, replaceCameraTrack, sendCallControl])
+
+  const switchCallCamera = useCallback(async () => {
+    const current = callRef.current
+    if (current.mode !== 'video' || !current.cameraEnabled) return
+    await replaceCameraTrack(current.facingMode === 'user' ? 'environment' : 'user')
+  }, [replaceCameraTrack])
 
   const dismissCallError = useCallback(() => {
     if (callRef.current.phase === 'failed') clearCall()
@@ -1662,7 +1970,9 @@ export function usePeerSession() {
     displayName,
     peerName,
     call,
+    localCallStream,
     remoteCallStream,
+    canSwitchCamera,
     maxFileSize: MAX_FILE_SIZE,
     createRoom,
     joinRoom,
@@ -1683,6 +1993,8 @@ export function usePeerSession() {
     cancelCall,
     endCall,
     toggleCallMute,
+    toggleCallCamera,
+    switchCallCamera,
     dismissCallError,
   }
 }

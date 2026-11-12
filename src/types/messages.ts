@@ -1,4 +1,5 @@
 export type EmojiReaction = '👍' | '❤️' | '😂' | '😮' | '😢' | '🙏'
+export type CallMode = 'voice' | 'video'
 
 export type ReplyReference = {
   id: string
@@ -31,13 +32,14 @@ export type PeerEnvelope =
   | { kind: 'message_edit'; messageId: string; text: string; editedAt: string }
   | { kind: 'message_delete'; messageId: string; deletedAt: string }
   | { kind: 'typing'; active: boolean }
-  | { kind: 'call_invite'; callId: string; sentAt: string }
+  | { kind: 'call_invite'; callId: string; mode: CallMode; sentAt: string }
   | { kind: 'call_accept'; callId: string }
   | { kind: 'call_ready'; callId: string }
   | { kind: 'call_decline'; callId: string; reason?: string }
   | { kind: 'call_cancel'; callId: string }
   | { kind: 'call_end'; callId: string; reason?: string }
   | { kind: 'call_mute'; callId: string; muted: boolean }
+  | { kind: 'call_video'; callId: string; enabled: boolean }
 
 export type CallEnvelope = Extract<PeerEnvelope, { kind: `call_${string}` }>
 
@@ -54,9 +56,13 @@ export type LiveCallState = {
   callId: string
   peerId: string
   peerName: string
+  mode: CallMode
   startedAt: number | null
   muted: boolean
   remoteMuted: boolean
+  cameraEnabled: boolean
+  remoteCameraEnabled: boolean
+  facingMode: 'user' | 'environment'
   error: string
 }
 

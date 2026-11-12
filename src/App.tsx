@@ -41,7 +41,7 @@ import {
 } from 'react'
 import { normalizeRoomCode, type RoomType } from '../shared/protocol'
 import { InviteDialog } from './components/InviteDialog'
-import { VoiceCallPanel } from './components/VoiceCallPanel'
+import { PrivateCallPanel } from './components/PrivateCallPanel'
 import { usePeerSession, type SessionPeer, type SessionPhase } from './hooks/usePeerSession'
 import { usePwa } from './hooks/usePwa'
 import { useVoiceRecorder } from './hooks/useVoiceRecorder'
@@ -877,16 +877,18 @@ function ChatWorkspace({
           }}
         />
         {session.roomType === 'private' && (
-          <VoiceCallPanel
+          <PrivateCallPanel
             call={session.call}
+            localStream={session.localCallStream}
             remoteStream={session.remoteCallStream}
+            canSwitchCamera={session.canSwitchCamera}
             route={session.route}
             quality={session.quality}
             connected={session.phase === 'connected'}
             recordingVoiceNote={voice.recording}
-            onStart={() => {
+            onStart={(mode) => {
               setFileError('')
-              session.startCall()
+              session.startCall(mode)
             }}
             onAccept={() => {
               if (voice.recording) voice.cancel()
@@ -896,6 +898,8 @@ function ChatWorkspace({
             onCancel={session.cancelCall}
             onEnd={session.endCall}
             onToggleMute={session.toggleCallMute}
+            onToggleCamera={() => void session.toggleCallCamera()}
+            onSwitchCamera={() => void session.switchCallCamera()}
             onDismissError={session.dismissCallError}
           />
         )}

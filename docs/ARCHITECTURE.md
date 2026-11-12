@@ -63,21 +63,24 @@ buffer crosses its threshold. Voice messages use this same bounded transfer path
 metadata, a browser-selected audio codec, a two-minute recording limit, and waveform samples for
 the interface. Audio bytes never enter signaling or the service-worker cache.
 
-## Private voice calls
+## Private voice and video calls
 
-Private links add one `sendrecv` audio transceiver before their initial offer. It has no local
-track, so establishing a room does not activate hardware or request permission. On call acceptance,
-each browser requests echo-cancelled, noise-suppressed audio and attaches it with
-`RTCRtpSender.replaceTrack()`. This avoids a second SDP exchange, offer glare, and disturbance to
-the existing data channels. Live audio follows the selected WebRTC media route; it is not encoded
-inside a WebSocket or data-channel message.
+Private links add silent `sendrecv` audio and video transceivers before their initial offer. They
+have no local tracks, so establishing a room does not activate hardware or request permission. On
+voice-call acceptance, each browser requests echo-cancelled, noise-suppressed audio. On video-call
+acceptance, it requests that audio and a user-facing camera together. Tracks attach with
+`RTCRtpSender.replaceTrack()`, avoiding a second SDP exchange, offer glare, and disturbance to the
+existing data channels. Live media follows the selected WebRTC route; it is not encoded inside a
+WebSocket or data-channel message.
 
-Typed `call_invite`, `call_accept`, `call_ready`, decline, cancel, end, and mute envelopes use the
-ordered `chat` data channel. A call ID rejects stale controls. If invitations cross, the lower peer
-ID keeps its outgoing invitation and the other browser adopts it as incoming. A media-generation
-counter invalidates late permission results after cancellation. Hang-up, peer departure, retry,
-hard connection failure, room leave, and component cleanup all detach the sender and stop local
-tracks. Group rooms neither create audio transceivers nor accept call controls.
+Typed `call_invite` envelopes carry a `voice` or `video` mode. Accept, ready, decline, cancel, end,
+mute, and camera-state controls use the ordered `chat` data channel. A call ID rejects stale
+controls. If invitations cross, the lower peer ID keeps its outgoing invitation and the other
+browser adopts it as incoming. Generation counters invalidate late permission and camera-switch
+results after cancellation. Turning the camera off detaches and stops its track while audio
+continues; turning it on or switching front/back replaces only the video track. Hang-up, peer
+departure, retry, hard connection failure, room leave, and component cleanup detach both senders
+and stop every local track. Group rooms create no media transceivers and reject all call controls.
 
 After ICE connects, the client reads the selected candidate pair through `RTCPeerConnection`
 statistics. Host-only pairs are shown as direct host routes, server-reflexive pairs as direct STUN

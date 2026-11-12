@@ -40,6 +40,11 @@ collection of unrelated cards.
 - Private voice calls keep the conversation visible: incoming consent uses a focused dialog, while
   ringing and active states use a compact structural bar with duration, route quality, mute, and
   hang-up controls
+- Private video calls use the same consent dialog and a restrained 16:9 stage above the message
+  thread. The remote view stays primary; the local preview is a small labelled inset. Camera,
+  microphone, camera-switch, autoplay recovery, and hang-up controls remain at least 44 px on
+  mobile, and a camera-off state always has a text placeholder
+- At 375 px the stage must not create horizontal overflow or hide the message thread below it
 - Live call and voice-note capture are mutually exclusive, and blocked remote autoplay exposes a
   visible Play audio recovery action
 

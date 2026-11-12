@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { CallEnvelope, LiveCallState } from '../types/messages'
 import {
+  cameraErrorMessage,
   callControlMatches,
   isCallEnvelope,
   localInviteWins,
@@ -15,29 +16,45 @@ const activeCall: LiveCallState = {
   callId,
   peerId: 'peer-b',
   peerName: 'Bina',
+  mode: 'video',
   startedAt: 100,
   muted: false,
   remoteMuted: false,
+  cameraEnabled: true,
+  remoteCameraEnabled: true,
+  facingMode: 'user',
   error: '',
 }
 
 describe('live call protocol validation', () => {
-  it.each<CallEnvelope>([
-    { kind: 'call_invite', callId, sentAt: new Date().toISOString() },
+  const validEnvelopes: CallEnvelope[] = [
+    { kind: 'call_invite', callId, mode: 'video', sentAt: new Date().toISOString() },
     { kind: 'call_accept', callId },
     { kind: 'call_ready', callId },
     { kind: 'call_decline', callId, reason: 'declined' },
     { kind: 'call_cancel', callId },
     { kind: 'call_end', callId, reason: 'hangup' },
     { kind: 'call_mute', callId, muted: true },
-  ])('accepts $kind controls', (envelope) => {
+    { kind: 'call_video', callId, enabled: false },
+  ]
+
+  it.each(validEnvelopes)('accepts $kind controls', (envelope) => {
     expect(isCallEnvelope(envelope)).toBe(true)
   })
 
   it('rejects malformed IDs, timestamps, mute states, and oversized reasons', () => {
     expect(isCallEnvelope({ kind: 'call_accept', callId: 'short' })).toBe(false)
     expect(isCallEnvelope({ kind: 'call_invite', callId, sentAt: 'not-a-date' })).toBe(false)
+    expect(
+      isCallEnvelope({
+        kind: 'call_invite',
+        callId,
+        mode: 'screen',
+        sentAt: new Date().toISOString(),
+      }),
+    ).toBe(false)
     expect(isCallEnvelope({ kind: 'call_mute', callId, muted: 'yes' })).toBe(false)
+    expect(isCallEnvelope({ kind: 'call_video', callId, enabled: 'yes' })).toBe(false)
     expect(
       isCallEnvelope({ kind: 'call_end', callId, reason: 'x'.repeat(121) }),
     ).toBe(false)
@@ -60,6 +77,13 @@ describe('deterministic call safety', () => {
     ).toBe(false)
     expect(callControlMatches(activeCall, 'peer-c', { kind: 'call_mute', callId, muted: true }))
       .toBe(false)
+    expect(
+      callControlMatches(activeCall, 'peer-b', {
+        kind: 'call_video',
+        callId: '00000000-0000-0000-0000-000000000000',
+        enabled: false,
+      }),
+    ).toBe(false)
   })
 
   it('invalidates late microphone results after cancellation', () => {
@@ -71,5 +95,12 @@ describe('deterministic call safety', () => {
     expect(microphoneErrorMessage(new DOMException('', 'NotAllowedError'))).toContain('denied')
     expect(microphoneErrorMessage(new DOMException('', 'NotFoundError'))).toContain('No microphone')
     expect(microphoneErrorMessage(new DOMException('', 'NotReadableError'))).toContain('another app')
+    expect(cameraErrorMessage(new DOMException('', 'NotAllowedError'))).toContain('denied')
+    expect(cameraErrorMessage(new DOMException('', 'NotFoundError'))).toContain(
+      'camera and microphone',
+    )
+    expect(cameraErrorMessage(new DOMException('', 'OverconstrainedError'))).toContain(
+      'not available',
+    )
   })
 })

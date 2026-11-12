@@ -30,7 +30,12 @@ describe('private call controls', () => {
 
   it('accepts typed call controls on the peer channel', () => {
     expect(
-      isPeerEnvelope({ kind: 'call_invite', callId, sentAt: new Date().toISOString() }),
+      isPeerEnvelope({
+        kind: 'call_invite',
+        callId,
+        mode: 'video',
+        sentAt: new Date().toISOString(),
+      }),
     ).toBe(true)
     expect(isPeerEnvelope({ kind: 'call_accept', callId })).toBe(true)
     expect(isPeerEnvelope({ kind: 'call_ready', callId })).toBe(true)
@@ -38,6 +43,7 @@ describe('private call controls', () => {
     expect(isPeerEnvelope({ kind: 'call_cancel', callId })).toBe(true)
     expect(isPeerEnvelope({ kind: 'call_end', callId, reason: 'hangup' })).toBe(true)
     expect(isPeerEnvelope({ kind: 'call_mute', callId, muted: true })).toBe(true)
+    expect(isPeerEnvelope({ kind: 'call_video', callId, enabled: false })).toBe(true)
   })
 
   it('rejects injected malformed call controls', () => {

@@ -19,7 +19,7 @@
 <p align="center">
   <img src="docs/private-chat.png" width="32%" alt="P4Pair private chat on mobile">
   <img src="docs/group-chat.png" width="32%" alt="P4Pair group chat on mobile">
-  <img src="docs/voice-call.png" width="32%" alt="P4Pair active voice call on mobile">
+  <img src="docs/video-call.png" width="32%" alt="P4Pair active video call on mobile">
 </p>
 
 <p align="center">
@@ -33,7 +33,7 @@
 P4Pair is a peer-to-peer chat app that runs in the browser. A small server helps people join the
 same room. After that, messages, files and calls travel between their browsers using WebRTC.
 
-The server handles room setup only. It does not receive chat text, files or call audio.
+The server handles room setup only. It does not receive chat text, files, call audio or video.
 
 There are no accounts and no message database. Closing the page clears the conversation from that
 browser.
@@ -56,7 +56,8 @@ browser.
 
 ## Extra features
 
-- One-to-one voice calls with mute and hang-up controls
+- One-to-one voice and video calls with camera, mute and hang-up controls
+- Front and back camera switching on supported phones
 - Voice messages with waveforms
 - File sharing up to 25 MB in private rooms
 - Sent, delivered and seen ticks
@@ -66,7 +67,8 @@ browser.
 - Room recovery after a refresh or short disconnect
 - Installable as a PWA
 
-Group rooms are text-only. Files, voice messages and calls are available in private rooms.
+Group rooms are text-only. Files, voice messages, voice calls and video calls are available in
+private rooms.
 
 ## Run locally
 
