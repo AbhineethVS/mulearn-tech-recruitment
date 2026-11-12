@@ -2,8 +2,10 @@ import { useEffect, useRef, useState } from 'react'
 import {
   Camera,
   CameraOff,
+  Maximize2,
   Mic,
   MicOff,
+  Minimize2,
   Phone,
   PhoneCall,
   PhoneOff,
@@ -37,8 +39,8 @@ type PrivateCallPanelProps = {
   onCancel: () => void
   onEnd: () => void
   onToggleMute: () => void
-  onToggleCamera: () => void
-  onSwitchCamera: () => void
+  onToggleCamera: () => void | Promise<void>
+  onSwitchCamera: () => void | Promise<void>
   onDismissError: () => void
 }
 
@@ -62,29 +64,29 @@ export function PrivateCallPanel({
   onDismissError,
 }: PrivateCallPanelProps) {
   const audioRef = useRef<HTMLAudioElement>(null)
+  const stageRef = useRef<HTMLElement>(null)
   const remoteVideoRef = useRef<HTMLVideoElement>(null)
   const localVideoRef = useRef<HTMLVideoElement>(null)
   const [autoplayBlocked, setAutoplayBlocked] = useState(false)
+  const [cameraBusy, setCameraBusy] = useState(false)
+  const [fullscreenCallId, setFullscreenCallId] = useState('')
   const [now, setNow] = useState(0)
 
   useEffect(() => {
     const audio = audioRef.current
     const video = remoteVideoRef.current
-    if (call.mode === 'video') {
-      if (audio) audio.srcObject = null
-      if (video) video.srcObject = remoteStream
-    } else {
-      if (video) video.srcObject = null
-      if (audio) audio.srcObject = remoteStream
-    }
+    if (audio) audio.srcObject = remoteStream
+    if (video) video.srcObject = call.mode === 'video' ? remoteStream : null
     if (
       !remoteStream ||
       (call.phase !== 'connecting' && call.phase !== 'active')
     ) {
       return
     }
-    const player = call.mode === 'video' ? video : audio
-    void player
+    if (call.mode === 'video') {
+      void video?.play().catch(() => undefined)
+    }
+    void audio
       ?.play()
       .then(() => setAutoplayBlocked(false))
       .catch(() => setAutoplayBlocked(true))
@@ -112,12 +114,42 @@ export function PrivateCallPanel({
     return () => window.removeEventListener('keydown', declineOnEscape)
   }, [call.phase, onDecline])
 
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+      if (!document.fullscreenElement) setFullscreenCallId('')
+    }
+    document.addEventListener('fullscreenchange', handleFullscreenChange)
+    return () => document.removeEventListener('fullscreenchange', handleFullscreenChange)
+  }, [])
+
   const recoverAudio = () => {
-    const player = call.mode === 'video' ? remoteVideoRef.current : audioRef.current
-    void player
+    void audioRef.current
       ?.play()
       .then(() => setAutoplayBlocked(false))
       .catch(() => setAutoplayBlocked(true))
+  }
+
+  const runCameraAction = async (action: () => void | Promise<void>) => {
+    if (cameraBusy) return
+    setCameraBusy(true)
+    try {
+      await action()
+    } finally {
+      setCameraBusy(false)
+    }
+  }
+
+  const fullscreen = fullscreenCallId === call.callId
+  const toggleFullscreen = async () => {
+    const stage = stageRef.current
+    if (!stage) return
+    if (fullscreen) {
+      if (document.fullscreenElement) await document.exitFullscreen().catch(() => undefined)
+      setFullscreenCallId('')
+      return
+    }
+    setFullscreenCallId(call.callId)
+    await stage.requestFullscreen?.().catch(() => undefined)
   }
 
   const peer = call.peerName || 'Peer'
@@ -199,13 +231,19 @@ export function PrivateCallPanel({
       )}
 
       {callInProgress && call.mode === 'video' && (
-        <section className="video-call-stage" aria-label="Private video call" aria-live="polite">
+        <section
+          ref={stageRef}
+          className={`video-call-stage ${fullscreen ? 'video-stage-fullscreen' : ''}`}
+          aria-label="Private video call"
+          aria-live="polite"
+        >
           <div className="remote-video-frame">
             <video
               ref={remoteVideoRef}
               className={call.remoteCameraEnabled ? '' : 'video-camera-off'}
               autoPlay
               playsInline
+              muted
               aria-label={`${peer}'s camera`}
             />
             {!call.remoteCameraEnabled && (
@@ -267,7 +305,9 @@ export function PrivateCallPanel({
                   <button
                     className={`call-control ${!call.cameraEnabled ? 'control-muted' : ''}`}
                     type="button"
-                    onClick={onToggleCamera}
+                    onClick={() => void runCameraAction(onToggleCamera)}
+                    disabled={cameraBusy}
+                    aria-busy={cameraBusy}
                     aria-pressed={!call.cameraEnabled}
                     aria-label={call.cameraEnabled ? 'Turn camera off' : 'Turn camera on'}
                   >
@@ -277,7 +317,9 @@ export function PrivateCallPanel({
                     <button
                       className="call-control"
                       type="button"
-                      onClick={onSwitchCamera}
+                      onClick={() => void runCameraAction(onSwitchCamera)}
+                      disabled={cameraBusy}
+                      aria-busy={cameraBusy}
                       aria-label="Switch camera"
                     >
                       <RefreshCw size={18} />
@@ -285,6 +327,15 @@ export function PrivateCallPanel({
                   )}
                 </>
               )}
+              <button
+                className="call-control"
+                type="button"
+                onClick={() => void toggleFullscreen()}
+                aria-pressed={fullscreen}
+                aria-label={fullscreen ? 'Exit full screen' : 'Enter full screen'}
+              >
+                {fullscreen ? <Minimize2 size={18} /> : <Maximize2 size={18} />}
+              </button>
               <button
                 className="call-control control-end"
                 type="button"

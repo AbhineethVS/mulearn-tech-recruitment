@@ -44,7 +44,11 @@ collection of unrelated cards.
   thread. The remote view stays primary; the local preview is a small labelled inset. Camera,
   microphone, camera-switch, autoplay recovery, and hang-up controls remain at least 44 px on
   mobile, and a camera-off state always has a text placeholder
+- Video stages include a full-screen control with an in-page fallback for mobile browsers that do
+  not support the standard Fullscreen API
 - At 375 px the stage must not create horizontal overflow or hide the message thread below it
+- On short landscape phones, reduce the header, connection rail, and inline video stage before
+  reducing the message history; the composer and at least one message row must remain visible
 - Live call and voice-note capture are mutually exclusive, and blocked remote autoplay exposes a
   visible Play audio recovery action
 

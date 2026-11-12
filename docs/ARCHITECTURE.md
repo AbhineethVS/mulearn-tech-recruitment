@@ -73,6 +73,12 @@ acceptance, it requests that audio and a user-facing camera together. Tracks att
 existing data channels. Live media follows the selected WebRTC route; it is not encoded inside a
 WebSocket or data-channel message.
 
+The browser answering the initial private-room offer explicitly sets both received transceivers to
+`sendrecv` before creating its SDP answer. Without this, some browsers negotiate a one-way media
+route even though a later local camera track is attached successfully. Remote video is rendered
+muted while the same stream's audio plays through a separate audio element, so desktop autoplay
+rules cannot block the picture; blocked sound still exposes the Play audio recovery action.
+
 Typed `call_invite` envelopes carry a `voice` or `video` mode. Accept, ready, decline, cancel, end,
 mute, and camera-state controls use the ordered `chat` data channel. A call ID rejects stale
 controls. If invitations cross, the lower peer ID keeps its outgoing invitation and the other

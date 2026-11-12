@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { isPeerEnvelope } from './usePeerSession'
+import { isPeerEnvelope, preparePrivateMediaAnswer } from './usePeerSession'
 
 describe('peer message receipts', () => {
   it('accepts a bounded list of seen message IDs', () => {
@@ -50,6 +50,31 @@ describe('private call controls', () => {
     expect(isPeerEnvelope({ kind: 'call_invite', callId, sentAt: 'yesterday' })).toBe(false)
     expect(isPeerEnvelope({ kind: 'call_mute', callId, muted: 1 })).toBe(false)
     expect(isPeerEnvelope({ kind: 'call_end', callId: '../../room' })).toBe(false)
+  })
+})
+
+describe('private media negotiation', () => {
+  it('enables answerer audio and video senders before creating the SDP answer', () => {
+    const audioSender = {} as RTCRtpSender
+    const videoSender = {} as RTCRtpSender
+    const audio = {
+      direction: 'recvonly',
+      receiver: { track: { kind: 'audio' } },
+      sender: audioSender,
+    } as RTCRtpTransceiver
+    const video = {
+      direction: 'recvonly',
+      receiver: { track: { kind: 'video' } },
+      sender: videoSender,
+    } as RTCRtpTransceiver
+
+    expect(
+      preparePrivateMediaAnswer({
+        getTransceivers: () => [audio, video],
+      }),
+    ).toEqual({ audioSender, videoSender })
+    expect(audio.direction).toBe('sendrecv')
+    expect(video.direction).toBe('sendrecv')
   })
 })
 

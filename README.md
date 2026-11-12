@@ -58,6 +58,7 @@ browser.
 
 - One-to-one voice and video calls with camera, mute and hang-up controls
 - Front and back camera switching on supported phones
+- Full-screen video with a compact landscape-phone layout
 - Voice messages with waveforms
 - File sharing up to 25 MB in private rooms
 - Sent, delivered and seen ticks

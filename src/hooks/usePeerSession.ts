@@ -73,6 +73,23 @@ type PeerLink = SessionPeer & {
   videoSender: RTCRtpSender | null
 }
 
+export const preparePrivateMediaAnswer = (
+  peer: Pick<RTCPeerConnection, 'getTransceivers'>,
+) => {
+  const audioTransceiver = peer
+    .getTransceivers()
+    .find((transceiver) => transceiver.receiver.track.kind === 'audio')
+  const videoTransceiver = peer
+    .getTransceivers()
+    .find((transceiver) => transceiver.receiver.track.kind === 'video')
+  if (audioTransceiver) audioTransceiver.direction = 'sendrecv'
+  if (videoTransceiver) videoTransceiver.direction = 'sendrecv'
+  return {
+    audioSender: audioTransceiver?.sender ?? null,
+    videoSender: videoTransceiver?.sender ?? null,
+  }
+}
+
 const MAX_MESSAGE_LENGTH = 4_000
 const MAX_FILE_SIZE = 25 * 1024 * 1024
 const FILE_CHUNK_SIZE = 16 * 1024
@@ -1060,12 +1077,17 @@ export function usePeerSession() {
         ) {
           return
         }
-        const stream = remoteCallStreamRef.current ?? new MediaStream()
-        remoteCallStreamRef.current = stream
-        if (!stream.getTracks().some((track) => track.id === event.track.id)) {
-          stream.addTrack(event.track)
+        const publishRemoteStream = () => {
+          const currentTracks = remoteCallStreamRef.current?.getTracks() ?? []
+          const tracks = currentTracks.some((track) => track.id === event.track.id)
+            ? currentTracks
+            : [...currentTracks, event.track]
+          const stream = new MediaStream(tracks)
+          remoteCallStreamRef.current = stream
+          setRemoteCallStream(stream)
         }
-        setRemoteCallStream(stream)
+        publishRemoteStream()
+        event.track.addEventListener('unmute', publishRemoteStream)
       })
       peer.addEventListener('datachannel', (event) => attachChannel(remotePeerId, event.channel))
 
@@ -1154,14 +1176,9 @@ export function usePeerSession() {
           await peer.setRemoteDescription(message.description)
           const link = linksRef.current.get(message.fromPeerId)
           if (roomType === 'private' && link) {
-            link.audioSender =
-              peer
-                .getTransceivers()
-                .find((transceiver) => transceiver.receiver.track.kind === 'audio')?.sender ?? null
-            link.videoSender =
-              peer
-                .getTransceivers()
-                .find((transceiver) => transceiver.receiver.track.kind === 'video')?.sender ?? null
+            const senders = preparePrivateMediaAnswer(peer)
+            link.audioSender = senders.audioSender
+            link.videoSender = senders.videoSender
           }
           await flushCandidates(message.fromPeerId, peer)
           await peer.setLocalDescription(await peer.createAnswer())
@@ -1655,14 +1672,30 @@ export function usePeerSession() {
       videoGenerationRef.current = generation
       let cameraStream: MediaStream | null = null
       try {
-        cameraStream = await navigator.mediaDevices.getUserMedia({
-          audio: false,
-          video: {
-            width: { ideal: 1280 },
-            height: { ideal: 720 },
-            facingMode: { ideal: facingMode },
-          },
-        })
+        const video = {
+          width: { ideal: 1280 },
+          height: { ideal: 720 },
+          facingMode: { exact: facingMode },
+        } as const
+        try {
+          cameraStream = await navigator.mediaDevices.getUserMedia({ audio: false, video })
+        } catch (exactError) {
+          if (
+            !(exactError instanceof DOMException) ||
+            (exactError.name !== 'OverconstrainedError' &&
+              exactError.name !== 'NotFoundError')
+          ) {
+            throw exactError
+          }
+          cameraStream = await navigator.mediaDevices.getUserMedia({
+            audio: false,
+            video: {
+              width: { ideal: 1280 },
+              height: { ideal: 720 },
+              facingMode: { ideal: facingMode },
+            },
+          })
+        }
         const latest = callRef.current
         const track = cameraStream.getVideoTracks()[0]
         const link = linksRef.current.get(current.peerId)
