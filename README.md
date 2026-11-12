@@ -13,9 +13,19 @@
 </p>
 
 <p align="center">
-  <img src="docs/landing.png" width="54%" alt="P4Pair landing page">
-  <img src="docs/private-chat.png" width="21%" alt="P4Pair private chat on mobile">
-  <img src="docs/voice-call.png" width="21%" alt="P4Pair voice call on mobile">
+  <img src="docs/landing.png" width="100%" alt="P4Pair landing page on a laptop">
+</p>
+
+<p align="center">
+  <img src="docs/private-chat.png" width="32%" alt="P4Pair private chat on mobile">
+  <img src="docs/group-chat.png" width="32%" alt="P4Pair group chat on mobile">
+  <img src="docs/voice-call.png" width="32%" alt="P4Pair active voice call on mobile">
+</p>
+
+<p align="center">
+  <img src="docs/incoming-call.png" width="32%" alt="P4Pair incoming voice call on mobile">
+  <img src="docs/connection-details.png" width="32%" alt="P4Pair connection details on mobile">
+  <img src="docs/invite.png" width="32%" alt="P4Pair QR invitation on mobile">
 </p>
 
 ## What is P4Pair?
@@ -27,6 +37,12 @@ The server handles room setup only. It does not receive chat text, files or call
 
 There are no accounts and no message database. Closing the page clears the conversation from that
 browser.
+
+## How it works
+
+1. One person creates a room and shares the link or QR code.
+2. The server introduces the browsers.
+3. WebRTC carries the conversation directly between them.
 
 ## Main features
 
